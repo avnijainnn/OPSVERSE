@@ -1,0 +1,3 @@
+# Ninety-second demonstration
+
+Launch Demo → watch orders and payments reach the warehouse → pause/step → inject Damaged return → open its evidence and deterministic investigator trace → compare No intervention, immediate recovery, and delayed manual review → run the delay sensitivity sweep → review the proposed sandbox action → inspect verification → open the printable Decision Receipt → open Replay and step through the recorded chain. The same controls offer settlement mismatch, supplier delay, and a missing payout that remains open after a dispute. The **Guided tour** button advances through these real sandbox actions at the viewer’s pace. Use **Reset demo** to return to a clean, isolated run.

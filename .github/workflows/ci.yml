@@ -1,0 +1,88 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: opsverse_test
+          POSTGRES_PASSWORD: local-ci-test-only
+          POSTGRES_DB: opsverse_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U opsverse_test -d opsverse_test"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      POSTGRES_TEST_URL: postgresql+psycopg://opsverse_test:local-ci-test-only@127.0.0.1:5432/opsverse_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -e '.[test]'
+        working-directory: apps/api
+      - run: python -m pytest tests -q
+        working-directory: apps/api
+      - run: python scripts/benchmark_live_detection.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-evaluation-reports
+          path: reports/*.json
+          if-no-files-found: ignore
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.6.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web build
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: opsverse_test
+          POSTGRES_PASSWORD: local-ci-test-only
+          POSTGRES_DB: opsverse_browser
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U opsverse_test -d opsverse_browser"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql+psycopg://opsverse_test:local-ci-test-only@127.0.0.1:5432/opsverse_browser
+      SESSION_SECRET: ci-browser-test-only-secret-with-more-than-32-chars
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -e '.[test]'
+        working-directory: apps/api
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.6.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec playwright install --with-deps chromium
+      - run: pnpm --dir apps/web exec playwright test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-screenshots-and-results
+          path: |
+            docs/screenshots/
+            apps/web/test-results/
+          if-no-files-found: ignore

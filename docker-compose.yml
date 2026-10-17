@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: opsverse
+      POSTGRES_USER: opsverse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opsverse_local_only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opsverse -d opsverse"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  api:
+    build: ./apps/api
+    environment:
+      OPSVERSE_DB: /data/opsverse.db
+      DATABASE_URL: postgresql+psycopg://opsverse:${POSTGRES_PASSWORD:-opsverse_local_only}@db:5432/opsverse
+      SESSION_SECRET: ${SESSION_SECRET:-local-development-secret-change-before-public-use-123}
+      COOKIE_SECURE: "false"
+      CORS_ORIGINS: http://localhost:3000
+      FRONTEND_URL: http://localhost:3000
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
+      SHOPIFY_CLIENT_ID: ${SHOPIFY_CLIENT_ID:-}
+      SHOPIFY_CLIENT_SECRET: ${SHOPIFY_CLIENT_SECRET:-}
+      SHOPIFY_REDIRECT_URI: ${SHOPIFY_REDIRECT_URI:-http://localhost:8000/live/shopify/callback}
+      SHOPIFY_REQUEST_ALL_ORDERS: ${SHOPIFY_REQUEST_ALL_ORDERS:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - opsverse_data:/data
+    ports:
+      - "8000:8000"
+  sync:
+    build: ./apps/api
+    command: python -m app.provider_worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://opsverse:${POSTGRES_PASSWORD:-opsverse_local_only}@db:5432/opsverse
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
+      SHOPIFY_CLIENT_ID: ${SHOPIFY_CLIENT_ID:-}
+      SHOPIFY_CLIENT_SECRET: ${SHOPIFY_CLIENT_SECRET:-}
+      SHOPIFY_REDIRECT_URI: ${SHOPIFY_REDIRECT_URI:-http://localhost:8000/live/shopify/callback}
+      SHOPIFY_REQUEST_ALL_ORDERS: ${SHOPIFY_REQUEST_ALL_ORDERS:-false}
+      PROVIDER_SYNC_INTERVAL_MINUTES: ${PROVIDER_SYNC_INTERVAL_MINUTES:-15}
+      PROVIDER_WORKER_POLL_SECONDS: ${PROVIDER_WORKER_POLL_SECONDS:-60}
+    depends_on:
+      api:
+        condition: service_started
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+volumes:
+  opsverse_data:
+  postgres_data:

@@ -1,0 +1,1 @@
+{"name":"opsverse","private":true,"packageManager":"pnpm@10.6.2","scripts":{"dev":"pnpm --dir apps/web dev","build":"pnpm --dir apps/web build","test:api":"python -m pytest apps/api/tests -q"}}

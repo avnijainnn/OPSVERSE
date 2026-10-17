@@ -1,0 +1,27 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+type Case = { type:string; seed:number; events:number; duration_ms:number; incident_resolved:boolean; verification_passed:boolean; parent_unchanged_during_comparison:boolean; replay_consistent:boolean };
+type Report = { evaluated_at:string; sample_size:number; configuration:{seed:number;mode:string}; action_verification_rate:number; incident_resolution_rate:number; replay_consistency_rate:number; detection_precision:number|null; detection_recall:number|null; limitations:string; cases:Case[] };
+type LiveFixtureReport = { evaluated_at:string; sample_size:number; positive_cases:number; negative_cases:number; configuration:{database:string;unit:string}; detection_precision:number|null; detection_recall:number|null; root_cause_accuracy:number; financial_reconciliation_accuracy:number; financial_cases:number; limitations:string; cases:{name:string;labeled_incident:boolean;predicted_incident:boolean;root_cause_and_evidence_correct:boolean|null;financial_reconciliation_correct:boolean|null}[] };
+
+export function BenchmarkReportPanel() {
+  const [report,setReport]=useState<Report|null>(null);
+  const [error,setError]=useState(false);
+  useEffect(()=>{fetch("/benchmark.json").then(response=>{if(!response.ok)throw Error("Report unavailable");return response.json()}).then(setReport).catch(()=>setError(true))},[]);
+  if(error)return <section className="surface report-panel"><div className="eyebrow">EVALUATION REPORT</div><p>No exported report is available. Run <code>python scripts/benchmark.py --output reports/benchmark.json</code>.</p></section>;
+  if(!report)return <section className="surface report-panel"><div className="eyebrow">EVALUATION REPORT</div><p>Loading measured results…</p></section>;
+  const date=new Intl.DateTimeFormat("en-IN",{dateStyle:"medium",timeStyle:"short",timeZone:"Asia/Kolkata"}).format(new Date(report.evaluated_at));
+  return <section className="surface report-panel"><div className="panel-head"><div><div className="eyebrow">LAST EXPORTED EVALUATION · SEED {report.configuration.seed}</div><h2>Synthetic incident suite</h2></div><span className="report-date">{date} IST</span></div><div className="report-metrics"><div><small>SAMPLE SIZE</small><strong>{report.sample_size}</strong></div><div><small>ACTIONS VERIFIED</small><strong>{Math.round(report.action_verification_rate*100)}%</strong></div><div><small>INCIDENTS RESOLVED</small><strong>{Math.round(report.incident_resolution_rate*100)}%</strong></div><div><small>REPLAY CONSISTENCY</small><strong>{Math.round(report.replay_consistency_rate*100)}%</strong></div></div><div className="report-cases">{report.cases.map(item=><div key={item.type + "-" + item.seed}><b>{item.type.replaceAll("_"," ")}</b><span>Seed {item.seed} · {item.events} events</span><span>{(item.duration_ms/1000).toFixed(1)}s</span><strong className={item.incident_resolved?"case-resolved":"case-open"}>{item.incident_resolved?"Resolved":"Open by design"}</strong></div>)}</div><div className="report-limit"><b>Evaluation limit</b><p>{report.limitations}</p><p>Detection precision: {report.detection_precision??"not measured"} · recall: {report.detection_recall??"not measured"}</p></div></section>;
+}
+
+export function LiveFixtureReportPanel() {
+  const [report,setReport]=useState<LiveFixtureReport|null>(null);
+  const [error,setError]=useState(false);
+  useEffect(()=>{fetch("/live_detection_fixtures.json").then(response=>{if(!response.ok)throw Error("Fixture report unavailable");return response.json()}).then(setReport).catch(()=>setError(true))},[]);
+  if(error)return <section className="surface report-panel"><div className="eyebrow">LABELED LIVE-DETECTION FIXTURES</div><p>Fixture report unavailable. Run <code>python scripts/benchmark_live_detection.py</code>.</p></section>;
+  if(!report)return <section className="surface report-panel"><div className="eyebrow">LABELED LIVE-DETECTION FIXTURES</div><p>Loading labeled results…</p></section>;
+  const score=(value:number|null)=>value===null?"Not measured":`${Math.round(value*100)}%`;
+  return <section className="surface report-panel"><div className="panel-head"><div><div className="eyebrow">LABELED LIVE-DETECTION FIXTURES · {report.configuration.database.toUpperCase()}</div><h2>Positive and negative controls</h2></div><span className="report-date">{report.sample_size} workspaces · {report.positive_cases} positive · {report.negative_cases} negative</span></div><div className="report-metrics"><div><small>DETECTION PRECISION</small><strong>{score(report.detection_precision)}</strong></div><div><small>DETECTION RECALL</small><strong>{score(report.detection_recall)}</strong></div><div><small>CAUSE + EVIDENCE</small><strong>{score(report.root_cause_accuracy)}</strong></div><div><small>FINANCIAL CHECKS</small><strong>{score(report.financial_reconciliation_accuracy)}</strong></div></div><div className="report-cases">{report.cases.map(item=><div key={item.name}><b>{item.name.replaceAll("_"," ")}</b><span>{item.labeled_incident?"Incident label":"Clean label"}</span><span>{item.predicted_incident?"Detected":"Clear"}</span><strong className={item.labeled_incident===item.predicted_incident?"case-resolved":"case-open"}>{item.labeled_incident===item.predicted_incident?"Correct":"Review"}</strong></div>)}</div><div className="report-limit"><b>Evaluation limit</b><p>{report.limitations}</p><p>Financial sample: {report.financial_cases} linked payment paths. No external provider or model result is included.</p></div></section>;
+}

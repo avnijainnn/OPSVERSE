@@ -1,0 +1,164 @@
+{
+  "evaluated_at": "2026-10-16T07:38:37.919088+00:00",
+  "configuration": {
+    "mode": "live_csv_api",
+    "database": "postgresql",
+    "unit": "hand-labeled workspace fixture"
+  },
+  "sample_size": 16,
+  "positive_cases": 7,
+  "negative_cases": 9,
+  "true_positives": 7,
+  "false_positives": 0,
+  "false_negatives": 0,
+  "detection_precision": 1.0,
+  "detection_recall": 1.0,
+  "root_cause_accuracy": 1.0,
+  "financial_reconciliation_accuracy": 1.0,
+  "financial_cases": 5,
+  "limitations": "16 hand-labeled CSV workspaces covering inventory, fulfillment, returns, refunds and payouts. Explained payout timing is excluded from actionable-incident labels. Rates check known rules on curated fixtures, not merchant-population or model accuracy.",
+  "cases": [
+    {
+      "name": "same-time_inventory_disagreement",
+      "labeled_incident": true,
+      "predicted_incident": true,
+      "open_incident_kinds": [
+        "inventory_mismatch"
+      ],
+      "root_cause_and_evidence_correct": true,
+      "financial_reconciliation_correct": null
+    },
+    {
+      "name": "same-time_inventory_agreement",
+      "labeled_incident": false,
+      "predicted_incident": false,
+      "open_incident_kinds": [],
+      "root_cause_and_evidence_correct": null,
+      "financial_reconciliation_correct": null
+    },
+    {
+      "name": "failed_fulfillment",
+      "labeled_incident": true,
+      "predicted_incident": true,
+      "open_incident_kinds": [
+        "fulfillment_failure"
+      ],
+      "root_cause_and_evidence_correct": true,
+      "financial_reconciliation_correct": null
+    },
+    {
+      "name": "completed_fulfillment",
+      "labeled_incident": false,
+      "predicted_incident": false,
+      "open_incident_kinds": [],
+      "root_cause_and_evidence_correct": null,
+      "financial_reconciliation_correct": null
+    },
+    {
+      "name": "payout_difference",
+      "labeled_incident": true,
+      "predicted_incident": true,
+      "open_incident_kinds": [
+        "payout_difference"
+      ],
+      "root_cause_and_evidence_correct": true,
+      "financial_reconciliation_correct": true
+    },
+    {
+      "name": "payout_balanced",
+      "labeled_incident": false,
+      "predicted_incident": false,
+      "open_incident_kinds": [],
+      "root_cause_and_evidence_correct": null,
+      "financial_reconciliation_correct": true
+    },
+    {
+      "name": "different_time_inventory_change",
+      "labeled_incident": false,
+      "predicted_incident": false,
+      "open_incident_kinds": [],
+      "root_cause_and_evidence_correct": null,
+      "financial_reconciliation_correct": null
+    },
+    {
+      "name": "different_location_inventory",
+      "labeled_incident": false,
+      "predicted_incident": false,
+      "open_incident_kinds": [],
+      "root_cause_and_evidence_correct": null,
+      "financial_reconciliation_correct": null
+    },
+    {
+      "name": "damaged_return_not_quarantined",
+      "labeled_incident": true,
+      "predicted_incident": true,
+      "open_incident_kinds": [
+        "damaged_return_stock"
+      ],
+      "root_cause_and_evidence_correct": true,
+      "financial_reconciliation_correct": null
+    },
+    {
+      "name": "damaged_return_quarantined",
+      "labeled_incident": false,
+      "predicted_incident": false,
+      "open_incident_kinds": [],
+      "root_cause_and_evidence_correct": null,
+      "financial_reconciliation_correct": null
+    },
+    {
+      "name": "refund_exceeds_capture",
+      "labeled_incident": true,
+      "predicted_incident": true,
+      "open_incident_kinds": [
+        "refund_inconsistency"
+      ],
+      "root_cause_and_evidence_correct": true,
+      "financial_reconciliation_correct": null
+    },
+    {
+      "name": "partial_refund_within_capture",
+      "labeled_incident": false,
+      "predicted_incident": false,
+      "open_incident_kinds": [],
+      "root_cause_and_evidence_correct": null,
+      "financial_reconciliation_correct": null
+    },
+    {
+      "name": "bank_credit_difference",
+      "labeled_incident": true,
+      "predicted_incident": true,
+      "open_incident_kinds": [
+        "payout_difference"
+      ],
+      "root_cause_and_evidence_correct": true,
+      "financial_reconciliation_correct": true
+    },
+    {
+      "name": "balanced_settlement_awaiting_bank",
+      "labeled_incident": false,
+      "predicted_incident": false,
+      "open_incident_kinds": [],
+      "root_cause_and_evidence_correct": null,
+      "financial_reconciliation_correct": true
+    },
+    {
+      "name": "unmatched_bank_credit",
+      "labeled_incident": true,
+      "predicted_incident": true,
+      "open_incident_kinds": [
+        "unmatched_bank_credit"
+      ],
+      "root_cause_and_evidence_correct": true,
+      "financial_reconciliation_correct": null
+    },
+    {
+      "name": "split_bank_credit_balanced",
+      "labeled_incident": false,
+      "predicted_incident": false,
+      "open_incident_kinds": [],
+      "root_cause_and_evidence_correct": null,
+      "financial_reconciliation_correct": true
+    }
+  ]
+}

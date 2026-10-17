@@ -30,7 +30,7 @@ Use `LiveIncident.evidence` and `Observation` for a derived evidence graph; `Liv
 
 The pre-change Next.js production build passed. The first API attempt reached 23 SQLite tests, then the PostgreSQL fixture failed to connect because WSL localhost forwarding stopped while the distro was idle. A direct PostgreSQL connection succeeded after restarting WSL and keeping a foreground WSL process active; the four PostgreSQL runtime tests then passed. This was an environment connectivity failure, not an application assertion failure. Existing pre-V2 browser captures were present under `docs/screenshots`; the new journey is being re-exercised against a real FastAPI/PostgreSQL server.
 
-After Stage 1, the focused incident graph test passed. After Stages 2–6, 12 focused live/backtest tests passed. The complete API suite and new Playwright journey are rerunning after the isolated demo extension; final counts belong in `VALIDATION_AND_LIMITATIONS.md` once they complete.
+After Stage 1, the focused incident graph test passed. After Stages 2–6, 12 focused live/backtest tests passed. The final PostgreSQL-enabled API suite passed 46/46 and the full browser suite passed 9/9, including the V2 incident-to-decision journey. A duplicate React key in the scenario event list was found through browser console inspection and corrected before the passing browser rerun. Final counts and limits are in `VALIDATION_AND_LIMITATIONS.md`.
 
 ## Planned changes in required order
 
@@ -52,4 +52,4 @@ After Stage 1, the focused incident graph test passed. After Stages 2–6, 12 fo
 - Stage 5: Money Trail exposes exact recorded adjustments, two-stage variances, stable supported reason codes and source paths. It does not infer chargebacks, FX differences, duplicate causes or fee variance without source evidence.
 - Stage 6: Private printable HTML and JSON receipts contain source IDs, branch manifest, review and verification; browser print supports PDF. No server-side PDF generator was added.
 - Stage 7: The live UI has a three-step Command Center → Incident Microscope → Decision Lab rail. The isolated SQLite demo has three branch ledgers, a bounded delay sweep, printable receipt and guided replay. The demo's third branch is a deterministic delayed review, not an AI-generated policy.
-- Stage 8: Regression and UI checks are ongoing. Real provider connection, model inference, hosted infrastructure and merchant-population accuracy remain unverified.
+- Stage 8: The PostgreSQL API suite, complete browser suite, screenshot audit, type check, demo benchmark and Compose configuration were exercised locally. Real provider connection, model inference, hosted infrastructure and merchant-population accuracy remain unverified.

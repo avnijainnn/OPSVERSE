@@ -19,4 +19,4 @@ For the authenticated path, open `/live`, create a workspace and import the CSV 
 - The synthetic demo and authenticated live workspaces are separate data products. The demo uses SQLite, while the live validation path uses PostgreSQL.
 - Detection evaluation uses 16 curated CSV workspaces; replay and recovery evaluation uses 20 seeded synthetic runs. These samples do not estimate accuracy across merchants. See [validation and limits](VALIDATION_AND_LIMITATIONS.md).
 - The historical lab currently evaluates order-volume projection only when enough observations were ingested before each cutoff. It does not establish causal policy success.
-- Production deployment still needs managed secrets, HTTPS, registration controls, rate limits, background-worker limits, monitoring and failover verification.
+- Production deployment still needs managed secrets, HTTPS, registration controls, distributed rate limits, background-worker limits, monitoring and failover verification.

@@ -1,0 +1,12 @@
+# Replace these example hosts with domains whose DNS points to this machine.
+demo.example.com {
+    @private path /live /live/*
+    respond @private 404
+    reverse_proxy 127.0.0.1:3000
+}
+
+api.example.com {
+    @private path /live /live/*
+    respond @private 404
+    reverse_proxy 127.0.0.1:8000
+}

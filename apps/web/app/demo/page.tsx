@@ -64,7 +64,29 @@ export default function Home() {
   const runId=world?.run.run_id;
 
   const load = useCallback(async (id:string) => {const data=await request<World>(`/runs/${id}`);seq.current=data.sequence;setWorld(data)},[]);
-  useEffect(()=>{let live=true;(async()=>{try{const runs=await request<World["run"][]>("/runs");const saved=localStorage.getItem("opsverse-run");const id=runs.find(x=>x.run_id===saved)?.run_id??runs[0]?.run_id;if(id){const data=await request<World>(`/runs/${id}`);if(live){setWorld(data);seq.current=data.sequence;localStorage.setItem("opsverse-run",id)}}else{const data=await post<World>("/runs",{seed:2026});if(live){setWorld(data);seq.current=data.sequence;localStorage.setItem("opsverse-run",data.run.run_id)}}}catch(e){if(live)setError(String(e))}})();return()=>{live=false}},[]);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        let data: World | null = null;
+        const saved = localStorage.getItem("opsverse-run");
+        if (saved) {
+          try { data = await request<World>(`/runs/${saved}`); } catch { /* expired local run */ }
+        }
+        if (!data) {
+          const runs = await request<World["run"][]>("/runs");
+          data = runs.length
+            ? await request<World>(`/runs/${runs[0].run_id}`)
+            : await post<World>("/runs", {seed: 2026});
+        }
+        if (live) {
+          setWorld(data); seq.current = data.sequence;
+          localStorage.setItem("opsverse-run", data.run.run_id);
+        }
+      } catch (error) { if (live) setError(String(error)); }
+    })();
+    return () => { live = false; };
+  }, []);
   useEffect(()=>{
     if(!runId)return;
     let closed=false;

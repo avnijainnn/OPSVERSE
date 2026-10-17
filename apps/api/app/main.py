@@ -5,10 +5,12 @@ from html import escape
 import json
 import os
 import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime
+from threading import Lock
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -22,6 +24,23 @@ from .shopify_api import drain_deliveries, router as shopify_router
 from .live_models import configured as live_database_configured
 from .razorpay_api import drain_razorpay_deliveries, router as razorpay_router, webhook_router as razorpay_webhook_router
 from .store import connection, events, init, rows, run
+
+_demo_budget: dict[str, deque[float]] = defaultdict(deque)
+_demo_budget_lock = Lock()
+
+
+def check_demo_budget(request: Request) -> None:
+    """Bound expensive anonymous demo mutations on a single API instance."""
+    identity = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    limit = int(os.getenv("DEMO_MUTATIONS_PER_HOUR", "60"))
+    with _demo_budget_lock:
+        recent = _demo_budget[identity]
+        while recent and recent[0] < now - 3600:
+            recent.popleft()
+        if len(recent) >= limit:
+            raise HTTPException(429, "Demo mutation limit reached; retry later")
+        recent.append(now)
 
 
 @asynccontextmanager
@@ -124,13 +143,20 @@ def health():
 
 @app.get("/runs")
 def list_runs():
+    if os.getenv("PUBLIC_SHOWCASE", "false").lower() == "true":
+        # Root run IDs are private bearer capabilities in showcase mode.
+        return []
     with connection(write=False) as db:
         return rows(db, "SELECT * FROM simulation_runs WHERE parent_run_id IS NULL ORDER BY created_at DESC LIMIT 20")
 
 
 @app.post("/runs")
-def launch(request: SeedRequest):
+def launch(request: SeedRequest, http_request: Request):
+    check_demo_budget(http_request)
     with connection() as db:
+        count = db.execute("SELECT COUNT(*) FROM simulation_runs WHERE parent_run_id IS NULL").fetchone()[0]
+        if count >= int(os.getenv("DEMO_MAX_ROOT_RUNS", "1000")):
+            raise HTTPException(429, "Demo run capacity reached")
         db.execute("UPDATE simulation_runs SET status='paused' WHERE parent_run_id IS NULL AND status='running'")
         run_id = seed_world(db, request.seed)
         return world_data(db, run_id)
@@ -190,7 +216,8 @@ def tick(run_id: str):
 
 
 @app.post("/runs/{run_id}/incidents")
-def inject_incident(run_id: str, request: IncidentRequest):
+def inject_incident(run_id: str, request: IncidentRequest, http_request: Request):
+    check_demo_budget(http_request)
     try:
         with connection() as db:
             run(db, run_id)
@@ -220,7 +247,8 @@ def traces(run_id: str):
 
 
 @app.post("/incidents/{incident_id}/compare")
-def compare_incident(incident_id: str):
+def compare_incident(incident_id: str, http_request: Request):
+    check_demo_budget(http_request)
     try:
         with connection() as db:
             return compare(db, incident_id)

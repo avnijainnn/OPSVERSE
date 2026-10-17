@@ -12,6 +12,8 @@ Live incident investigations use workspace-scoped read tools. With `LLM_BASE_URL
 The [real-world completion audit](docs/REAL_WORLD_COMPLETION_GAPS.md) records implementation status and verification limits.
 The [cofounder walkthrough](docs/COFOUNDER_DEMO.md) and [validation matrix](docs/VALIDATION_AND_LIMITATIONS.md) show the actual demo path and what remains unverified.
 
+The [Three-Futures repair audit](docs/REPAIR_AND_SHOWCASE_AUDIT.md), [synthetic showcase deployment guide](docs/DEPLOYMENT_SHOWCASE.md), and [optional model setup](docs/LLM_SETUP.md) describe the current event-clock simulation, replay and verification boundary.
+
 ![Event-grounded synthetic Live Twin](docs/screenshots/demo-live-twin-desktop.png)
 
 ![Source-backed live inventory investigation](docs/screenshots/v2-incident-microscope.png)

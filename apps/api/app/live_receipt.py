@@ -32,6 +32,8 @@ def receipt_data(db: Session, workspace_id: str, scenario: LiveScenario,
         AuditRecord.workspace_id == workspace_id, AuditRecord.action == "backtest_run")
         .order_by(AuditRecord.created_at.desc()).limit(1))
     branches = scenario.branches or [scenario.baseline, scenario.recovery]
+    latest_review = next((item for item in reversed(audits) if item.action == "scenario_reviewed"), None)
+    latest_verification = next((item for item in reversed(audits) if item.action == "scenario_verified"), None)
     return {"receipt_version": 1, "workspace": {"id": workspace_id, "name": workspace.name},
             "incident": {"id": incident.id, "kind": incident.kind, "summary": incident.summary,
                          "classification": incident.classification,
@@ -45,12 +47,21 @@ def receipt_data(db: Session, workspace_id: str, scenario: LiveScenario,
                          "created_at": utc(scenario.created_at).isoformat(),
                          "seed": scenario.seed, "inputs": scenario.disruption,
                          "assumptions": scenario.assumptions,
+                         "selected_policy": latest_review.detail if latest_review else None,
+                         "sandbox_verification": latest_verification.detail if latest_verification else None,
                          "branches": [{"label": item["label"],
                                        "fulfilled_units": item["fulfilled_units"],
+                                       "unfulfilled_demand_units": item.get("unfulfilled_demand_units"),
                                        "unfilled_attempts": item["unfilled_attempts"],
                                        "stock_risk_units": item["stock_risk_units"],
                                        "additional_operational_cost_paise": item.get("additional_operational_cost_paise"),
-                                       "refund_exposure_paise": item.get("refund_exposure_paise"),
+                                       "potential_refund_exposure_paise": item.get("potential_refund_exposure_paise"),
+                                       "recovery_status": item.get("recovery_status"),
+                                       "recovery_completed_at": item.get("recovery_completed_at"),
+                                       "unresolved_risks": (["Disputed stock remains unverified"]
+                                                            if item.get("stock_risk_units") else []) +
+                                                           (["Recovery incomplete within horizon"]
+                                                            if item.get("recovery_status") == "unresolved" else []),
                                        "event_count": len(item["events"])} for item in branches]},
             "snapshot": {"id": snapshot.id, "source_digest": snapshot.source_digest,
                          "observed_cutoff": utc(snapshot.observed_cutoff).isoformat() if snapshot.observed_cutoff else None,
@@ -81,9 +92,12 @@ def render_receipt(receipt: dict) -> str:
         return escape(str(value if value is not None else "—"))
     scenario = receipt["scenario"]
     incident = receipt["incident"]
+    selected = scenario["selected_policy"]
+    verification = scenario["sandbox_verification"]
     rows = "".join(f"<tr><td>{h(item['label'])}</td><td>{item['fulfilled_units']}</td>"
                    f"<td>{item['unfilled_attempts']}</td><td>{item['stock_risk_units']}</td>"
-                   f"<td>{h(item['additional_operational_cost_paise'])}</td></tr>"
+                   f"<td>{h(item['additional_operational_cost_paise'])}</td>"
+                   f"<td>{h(item['recovery_completed_at'])}</td></tr>"
                    for item in scenario["branches"])
     claims = receipt["investigation"] or {}
     facts = "".join(f"<li>{h(item['text'])}</li>" for item in claims.get("claims", []))
@@ -100,7 +114,7 @@ def render_receipt(receipt: dict) -> str:
 <h2>Incident and source evidence</h2><div class="card"><strong>{h(incident['kind'] if incident else 'No incident selected')}</strong><p>{h(incident['summary'] if incident else 'This scenario was not linked to an incident.')}</p><small>Incident ID: {h(incident['id'] if incident else None)}</small><p>{h(len(incident['source_references']) if incident else 0)} source references · Snapshot {h(receipt['snapshot']['id'])} · {h(receipt['snapshot']['observation_count'])} observation versions</p></div>
 <h2>Observation versions</h2><div class="card"><ul>{observations or '<li>No linked observation versions</li>'}</ul></div>
 <h2>Findings and uncertainty</h2><div class="card"><strong>Source-derived claims</strong><ul>{facts or '<li>No investigation attached</li>'}</ul><strong>Inferred hypotheses</strong><ul>{hypotheses or '<li>None confirmed</li>'}</ul><strong>Open questions</strong><ul>{missing or '<li>Not recorded</li>'}</ul><p>{h(len(receipt['missing_evidence']))} unresolved evidence references</p></div>
-<h2>Compared futures</h2><div class="card"><table><thead><tr><th>Strategy</th><th>Fulfilled units</th><th>Unfilled attempts</th><th>Stock risk units</th><th>Cost · paise</th></tr></thead><tbody>{rows}</tbody></table><p>Seed {h(scenario['seed'])} · Observed cutoff {h(receipt['snapshot']['observed_cutoff'])} · Model {h(receipt['manifest']['model_version'])}</p></div>
+<h2>Compared futures</h2><div class="card"><table><thead><tr><th>Strategy</th><th>Fulfilled units</th><th>Lost attempts</th><th>Stock risk units</th><th>Cost (paise)</th><th>Recovery hour</th></tr></thead><tbody>{rows}</tbody></table><p>Seed {h(scenario['seed'])} ? Observed cutoff {h(receipt['snapshot']['observed_cutoff'])} ? Model {h(receipt['manifest']['model_version'])}</p><p>Stock risk is exposure to disputed units, not a confirmed refund or physical inventory violation.</p></div>
 <h2>Reliability and limits</h2><div class="card"><p>{h('Latest workspace backtest: ' + str(receipt['backtest']['samples']) + ' order-volume origins' if receipt['backtest'] else 'No valid historical backtest attached')}</p><ul>{''.join('<li>' + h(item) + '</li>' for item in receipt['snapshot']['limitations'])}</ul></div>
-<h2>Human review and sandbox verification</h2><div class="card"><ul>{audit or '<li>No review or verification recorded</li>'}</ul></div>
+<h2>Human review and sandbox verification</h2><div class="card"><p>Selected policy: {h(selected['label'] if selected else 'No human selection recorded')}</p><p>Review note: {h(selected.get('note') if selected else None)}</p><p>Sandbox replay verified: {h(verification.get('verified') if verification else None)}</p><ul>{audit or '<li>No review or verification recorded</li>'}</ul><p>Verification reruns the snapshot and does not execute a real provider action.</p></div>
 <h2>Reproducibility manifest</h2><pre>{manifest}</pre></main></body></html>"""

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import random
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -89,99 +88,7 @@ def freeze_state(db: Session, workspace_id: str, cutoff: datetime | None = None)
     return state, hashlib.sha256(encoded).hexdigest()
 
 
-def simulate_branches(state: dict, sku: str, seed: int, demand: int,
-                      disruption_units: int = 0, unit_multiplier: int = 1,
-                      *, supplier_lead_time: int = 0, restock_units: int = 0,
-                      inspection_delay: int = 0, fulfillment_cost_paise: int = 0,
-                      expedited_delivery_cost_paise: int = 0,
-                      unfulfilled_cost_paise: int = 0,
-                      return_processing_time: int = 0) -> list[dict]:
-    if demand < 1 or demand > 500 or disruption_units < 0 or unit_multiplier < 1 or unit_multiplier > 5:
-        raise ValueError("Demand, disruption, or estimated units per demand is outside allowed limits")
-    if any(value < 0 or value > 100000 for value in (supplier_lead_time, restock_units,
-           inspection_delay, fulfillment_cost_paise, expedited_delivery_cost_paise,
-           unfulfilled_cost_paise, return_processing_time)):
-        raise ValueError("Scenario assumptions are outside allowed limits")
-    stock_rows = [item for item in state["inventory"] if item["sku"] == sku]
-    products = [item for item in state["products"] if item["sku"] == sku]
-    if not stock_rows or not products:
-        raise ValueError("SKU is absent from this observed snapshot")
-    latest_time = max(item["observed_at"] for item in stock_rows)
-    latest = [item for item in stock_rows if item["observed_at"] == latest_time]
-    highest = max(item["sellable"] for item in latest)
-    lowest = min(item["sellable"] for item in latest)
-    price = products[-1]["price_paise"]
-    schedule = [random.Random(seed + n * 7919).randrange(1, 4) * unit_multiplier
-                for n in range(demand)]
-    plans = [("Use highest observed quantity", max(0, highest - disruption_units)),
-             ("Hold disputed units", max(0, lowest - disruption_units)),
-             ("Pause fulfillment for verification", 0)]
-
-    def run(label: str, available: int, branch_index: int) -> dict:
-        remaining = available
-        fulfilled = 0
-        cost = 0
-        restocked = False
-        trace = [{"step": 0, "event": "HypotheticalDisruption",
-                  "disruption_units": disruption_units, "starting_sellable": available,
-                  "classification": "simulated"}]
-        for number, requested in enumerate(schedule, 1):
-            if branch_index == 1 and restock_units and not restocked and number > supplier_lead_time:
-                remaining += restock_units
-                restocked = True
-                trace.append({"step": number, "event": "HypotheticalRestock", "units": restock_units,
-                              "remaining": remaining, "classification": "simulated"})
-            if branch_index == 2 and inspection_delay and number > inspection_delay + return_processing_time and not restocked:
-                remaining += max(0, lowest - disruption_units) + restock_units
-                restocked = True
-                trace.append({"step": number, "event": "HypotheticalInspectionRelease",
-                              "units": remaining, "remaining": remaining, "classification": "simulated"})
-            accepted = requested if remaining >= requested else 0
-            remaining -= accepted
-            fulfilled += accepted
-            cost += accepted * fulfillment_cost_paise
-            if accepted and restocked:
-                cost += expedited_delivery_cost_paise
-            if not accepted:
-                cost += unfulfilled_cost_paise
-            trace.append({"step": number, "event": "HypotheticalOrderFulfilled" if accepted else "HypotheticalDemandUnfilled",
-                          "demand_id": f"demand-{number}", "requested": requested,
-                          "fulfilled": accepted, "remaining": remaining, "classification": "simulated"})
-        safe_capacity = max(0, lowest - disruption_units) + (restock_units if restocked else 0)
-        risk_units = max(0, fulfilled - safe_capacity)
-        return {"label": label, "starting_sellable": available, "fulfilled_units": fulfilled,
-                "unfilled_attempts": sum(item["event"] == "HypotheticalDemandUnfilled" for item in trace),
-                "hypothetical_revenue_paise": fulfilled * price,
-                "stock_risk_units": risk_units,
-                "ending_sellable": remaining, "additional_operational_cost_paise": cost,
-                "refund_exposure_paise": risk_units * price,
-                "orders_fulfilled": sum(item["event"] == "HypotheticalOrderFulfilled" for item in trace),
-                "orders_delayed": sum(item["event"] == "HypotheticalDemandUnfilled" for item in trace),
-                "policy_violations": risk_units if branch_index == 0 else 0,
-                "recovery_step": next((item["step"] for item in trace if item["event"] == "HypotheticalOrderFulfilled"), None),
-                "events": trace, "model_version": "inventory-v2",
-                "source_record_ids": [item["id"] for item in latest]}
-
-    return [run(label, quantity, index) for index, (label, quantity) in enumerate(plans)]
-
-
-def explain_metric_difference(branches: list[dict], left: int, right: int, metric: str) -> dict:
-    if left < 0 or right < 0 or left >= len(branches) or right >= len(branches):
-        raise ValueError("Choose two saved branches")
-    if metric not in {"unfilled_attempts", "fulfilled_units", "hypothetical_revenue_paise",
-                      "additional_operational_cost_paise", "stock_risk_units"}:
-        raise ValueError("Unsupported metric")
-    a, b = branches[left], branches[right]
-    by_demand = lambda branch: {event["demand_id"]: event for event in branch["events"] if "demand_id" in event}
-    a_events, b_events = by_demand(a), by_demand(b)
-    differences = [{"demand_id": key, "left": a_events[key], "right": b_events[key]}
-                   for key in a_events.keys() & b_events.keys()
-                   if a_events[key]["fulfilled"] != b_events[key]["fulfilled"]]
-    differences.sort(key=lambda row: int(row["demand_id"].split("-")[1]))
-    return {"metric": metric, "left_branch": left, "right_branch": right,
-            "left_value": a[metric], "right_value": b[metric],
-            "difference": b[metric] - a[metric], "demand_events": differences,
-            "explanation": "Demand events show fulfillment differences; cost and risk also use the saved assumptions and branch policy"}
+from .live_simulation import simulate_branches, explain_metric_difference, find_first_branch_divergence
 
 
 def compare_inventory(state: dict, sku: str, seed: int, demand: int) -> tuple[dict, dict]:

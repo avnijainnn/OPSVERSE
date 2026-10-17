@@ -10,7 +10,7 @@ from alembic.config import Config
 from fastapi.testclient import TestClient
 
 from app import store
-from app.live_ai import RelatedArgs, related_records, model_fact, read_tool, _completion
+from app.live_ai import RelatedArgs, related_records, model_fact, policy_proposals, read_tool, _completion
 from app.live_models import InventorySnapshot, LiveIncident, session_factory
 from app.main import app
 
@@ -306,6 +306,11 @@ def test_cross_period_refund_matches_bank_and_missing_bank_is_timing(client):
     assert matched_payment["expected_paise"] == 87640
     assert matched_payment["status"] == "awaiting_bank_import"
     assert matched_payment["reason_codes"] == ["CROSS_PERIOD_REFUND", "MISSING_BANK_CREDIT"]
+    timing = next(item for item in client.get(f"/live/workspaces/{workspace}/incidents").json()
+                  if item["kind"] == "payout_timing")
+    unresolved = client.post(f"/live/workspaces/{workspace}/incidents/{timing['id']}/investigate").json()
+    assert "bank receipt remains unresolved" in unresolved["finding"]
+    assert unresolved["proposals"]
     assert matched_payment["payment"]["amount_paise"] + sum(item["amount_paise"] for item in matched_payment["adjustments"]) == matched_payment["expected_paise"]
     assert {item["kind"] for item in matched_payment["source_path"]} >= {"order", "payment", "refund", "settlement"}
     upload(client, workspace, "bank_transactions", "external_id,settlement_external_id,amount,posted_at\n"
@@ -315,11 +320,20 @@ def test_cross_period_refund_matches_bank_and_missing_bank_is_timing(client):
     assert matched_payment["status"] == "matched"
     assert matched_payment["reason_codes"] == ["CROSS_PERIOD_REFUND"]
     assert matched_payment["bank_variance_paise"] == 0
+    reconciled = client.post(f"/live/workspaces/{workspace}/incidents/{timing['id']}/investigate").json()
+    assert "reconcile exactly" in reconciled["finding"]
+    assert reconciled["proposals"] == []
+    assert reconciled["structured"]["unresolved_questions"] == []
     with session_factory()() as db:
         linked = related_records(db, workspace, RelatedArgs(external_id="o-2"))
     assert {item["external_id"] for item in linked} >= {"o-2", "pay-new", "settle-new", "bank-new"}
     assert not any(item["kind"] == "payout_difference" for item in
                    client.get(f"/live/workspaces/{workspace}/incidents").json())
+
+
+def test_empty_model_proposals_do_not_expand_to_all_policies():
+    incident = type("Incident", (), {"kind": "payout_timing", "evidence": []})()
+    assert policy_proposals(incident, []) == []
 
 
 def test_workspace_isolation_and_rejected_conflicting_duplicate(client):

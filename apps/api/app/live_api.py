@@ -23,7 +23,7 @@ from .live_models import (AuditRecord, BankTransaction, ImportBatch, InventorySn
                           LiveIncident, LiveInvestigation, LiveScenario, LiveSnapshot,
                           Observation, Order, OrderItem, Payment, Product, ProviderConnection,
                           Refund, Return, Settlement, User)
-from .live_twin import explain_metric_difference, freeze_state, simulate_branches, utc
+from .live_twin import explain_metric_difference, find_first_branch_divergence, freeze_state, simulate_branches, utc
 from .live_providers import connection, public_status
 from .shopify_api import configured as shopify_configured
 
@@ -390,12 +390,20 @@ class ScenarioRequest(BaseModel):
     expedited_delivery_cost_paise: int = Field(default=0, ge=0, le=100000)
     unfulfilled_cost_paise: int = Field(default=0, ge=0, le=100000)
     return_processing_time: int = Field(default=0, ge=0, le=500)
+    inspection_result: str = Field(default="failed", pattern="^(passed|failed|hold)$")
+    supplier_available: bool = True
+    procurement_unit_cost_paise: int = Field(default=0, ge=0, le=100000)
+    holding_cost_paise_per_unit_hour: int = Field(default=0, ge=0, le=100000)
+    return_inspection_cost_paise: int = Field(default=0, ge=0, le=100000)
 
 
 def scenario_options(data: dict) -> dict:
-    return {key: data.get(key, 0) for key in (
+    defaults = {"inspection_result": "failed", "supplier_available": True}
+    return {key: data.get(key, defaults.get(key, 0)) for key in (
         "supplier_lead_time", "restock_units", "inspection_delay", "fulfillment_cost_paise",
-        "expedited_delivery_cost_paise", "unfulfilled_cost_paise", "return_processing_time")}
+        "expedited_delivery_cost_paise", "unfulfilled_cost_paise", "return_processing_time",
+        "inspection_result", "supplier_available", "procurement_unit_cost_paise",
+        "holding_cost_paise_per_unit_hour", "return_inspection_cost_paise")}
 
 
 class SnapshotRequest(BaseModel):
@@ -493,7 +501,12 @@ def compare_snapshot(workspace_id: str, snapshot_id: str, request: ScenarioReque
                                       **scenario_options(request.model_dump())},
                           assumptions=["Each hypothetical demand event requests 1–3 units multiplied by the selected estimate",
                                        "Unit price is the observed product price; revenue is a forecast",
-                                       "Additional operational cost includes entered fulfillment, expedited and unfulfilled-order costs; acquisition cost is not modeled",
+                                       "Simulation clock, inspection delay, and supplier lead time use hours",
+                                       "Disputed units require the selected simulated inspection result",
+                                       "Conservative recovery accepts whole orders only; the alternative can partially fulfill",
+                                       "A replacement supplier delivers only when availability is enabled",
+                                       "Unfilled orders are lost; they are not queued or called delayed",
+                                       "Modeled costs use integer paise and include entered procurement and inspection costs",
                                        "Fulfillment does not write to live orders, inventory, or providers"])
     db.add(result)
     db.flush()
@@ -533,8 +546,10 @@ def replay_scenario(workspace_id: str, scenario_id: str,
                                                   AuditRecord.action.in_(["scenario_reviewed", "scenario_verified"]))
                          .order_by(AuditRecord.created_at)).all()
     return {"id": item.id, "kind": "hypothetical_simulation", "snapshot_id": item.snapshot_id,
+            "seed": item.seed,
             "source_digest": db.get(LiveSnapshot, item.snapshot_id).source_digest,
             "branches": item.branches or [item.baseline, item.recovery],
+            "first_divergence": find_first_branch_divergence(item.branches or [item.baseline, item.recovery]),
             "disruption": item.disruption, "assumptions": item.assumptions,
             "reviews": [{"action": row.action, "detail": row.detail,
                          "created_at": utc(row.created_at).isoformat()} for row in reviews]}
@@ -640,7 +655,8 @@ def scenario_sensitivity(workspace_id: str, scenario_id: str, data: SensitivityR
     item = db.get(LiveScenario, scenario_id)
     if not item or item.workspace_id != workspace_id:
         raise HTTPException(404, "Scenario not found")
-    if data.variable not in {"demand", "unavailable_units", "unit_multiplier", *scenario_options({}).keys()}:
+    if data.variable not in {"demand", "unavailable_units", "unit_multiplier",
+                             *(scenario_options({}).keys() - {"inspection_result", "supplier_available"})}:
         raise HTTPException(400, "Unsupported assumption")
     if any(seed < 0 or seed > 2_147_483_647 for seed in data.seeds):
         raise HTTPException(400, "Seeds must be between 0 and 2147483647")

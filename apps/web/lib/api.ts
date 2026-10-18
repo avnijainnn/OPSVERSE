@@ -6,7 +6,13 @@ export type Incident = { incident_id:string;run_id:string;type:string;severity:s
 export type Scenario = {result_id:string;incident_id:string;baseline_run_id:string;recovery_run_id:string;third_run_id?:string|null;baseline_metrics:Metrics;recovery_metrics:Metrics;third_metrics?:Metrics|null;created_at:string};
 export type World = {run:{run_id:string;seed:number;parent_run_id:string|null;clock:string;status:string;speed:number;created_at:string};sequence:number;execution_mode:string;state:State;metrics:Metrics;events:Event[];incidents:Incident[]};
 export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-export async function request<T>(path:string, init?:RequestInit):Promise<T> { const response = await fetch(API+path,{...init,headers:{"Content-Type":"application/json",...(init?.headers??{})},cache:"no-store"}); if(!response.ok){let message=response.statusText;try{message=(await response.json()).detail??message}catch{}throw new Error(message)}return response.json() }
+export class ApiError extends Error {
+  constructor(message:string,readonly status:number) {
+    super(message);
+    this.name="ApiError";
+  }
+}
+export async function request<T>(path:string, init?:RequestInit):Promise<T> { const response = await fetch(API+path,{...init,headers:{"Content-Type":"application/json",...(init?.headers??{})},cache:"no-store"}); if(!response.ok){let message=response.statusText;try{message=(await response.json()).detail??message}catch{}throw new ApiError(message,response.status)}return response.json() }
 export const post = <T,>(path:string,body:unknown={}) => request<T>(path,{method:"POST",body:JSON.stringify(body)});
 export const inr = (paise:number) => new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:2}).format(paise/100);
 export const name = (value:string) => value.replaceAll("_"," ").replace(/\b\w/g,c=>c.toUpperCase());

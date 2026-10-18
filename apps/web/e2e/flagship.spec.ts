@@ -17,7 +17,7 @@ test("damaged return: investigate, compare, approve, replay", async ({ page }) =
   await expect(page.locator(".causal-graph .react-flow__node")).toHaveCount(2);
   await page.screenshot({ path: "../../docs/opsverse-incident.png", fullPage: true });
   await page.locator(".causal-graph .react-flow__node").last().click();
-  await expect(page.getByText("SOURCE EVENT")).toBeVisible();
+  await expect(page.getByText("SOURCE EVENT", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Close" }).click();
   await page.getByRole("button", { name: "Compare futures" }).click();
   await expect(page.getByRole("heading", { name: "No intervention" })).toBeVisible();
@@ -40,29 +40,69 @@ test("damaged return: investigate, compare, approve, replay", async ({ page }) =
   await expect(page.getByText("Projection rebuilt by replaying recorded events through this sequence.")).toBeVisible();
 });
 
-test("guided demo executes the sandbox workflow", async ({ page }) => {
+test("guided demo executes the sandbox workflow", async ({ page }, testInfo) => {
   await page.goto("/demo");
   await expect(page.getByRole("heading", { name: "Live Twin" })).toBeVisible();
-  await page.getByRole("button", { name: "Guided tour" }).click();
+  await page.screenshot({ path: testInfo.outputPath("01-live-twin.png"), fullPage: true });
+  const initialRun = await page.locator(".run-chip span").first().textContent();
+  await page.getByRole("button", { name: "Start Guided Demo" }).click();
+  await expect.poll(() => page.locator(".run-chip span").first().textContent()).not.toBe(initialRun);
+  await expect(page.getByText("SEED 2026")).toBeVisible();
   await expect(page.getByRole("heading", { name: "A living business" })).toBeVisible();
   await page.getByRole("button", { name: "Trigger return fault" }).click();
   await expect(page.getByRole("heading", { name: "Evidence before action" })).toBeVisible();
+  await expect(page.getByText("EVIDENCE GRAPH · RECORDED SOURCE EVENTS")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("02-incident-evidence.png"), fullPage: true });
   await page.getByRole("button", { name: "Test three futures" }).click();
   await expect(page.getByRole("heading", { name: "Compare decisions" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "No intervention" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "quarantine return" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Defer for manual review" })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("03-three-futures.png"), fullPage: true });
   await page.getByRole("button", { name: "Test review delay" }).click();
   await expect(page.getByRole("heading", { name: "Sensitivity to delay" })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("04-delay-sensitivity.png"), fullPage: true });
   await page.getByRole("button", { name: "Approve quarantine" }).click();
   await expect(page.getByText("Verification passed")).toBeVisible();
+  await expect(page.getByText("SANDBOX OUTCOME · RECORDED, NOT A REAL-WORLD WRITE")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("05-verified-outcome.png"), fullPage: true });
   const receiptPromise = page.context().waitForEvent("page");
   await page.getByRole("button", { name: "Open Decision Receipt" }).click();
   const receipt = await receiptPromise;
   await receipt.waitForLoadState("domcontentloaded");
   await expect(receipt.getByRole("heading", { name: "Decision Receipt" })).toBeVisible();
+  await receipt.screenshot({ path: testInfo.outputPath("06-decision-receipt.png"), fullPage: true });
   await receipt.close();
   await page.getByRole("button", { name: "Replay the chain" }).click();
   await expect(page.getByRole("heading", { name: "Event sequence" })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("07-event-replay.png"), fullPage: true });
   await page.getByRole("button", { name: "Finish tour" }).click();
   await expect(page.getByText("GUIDED DEMO · REPRODUCIBLE")).toHaveCount(0);
+});
+
+test("guided demo keeps a failed step in place and retries it", async ({ page }) => {
+  let incidentRequests = 0;
+  await page.route(/\/runs\/[^/]+\/incidents$/, async route => {
+    incidentRequests += 1;
+    if (incidentRequests === 1) {
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "Temporary incident service error. Retry this step." }) });
+      return;
+    }
+    await route.continue();
+  });
+  await page.goto("/demo");
+  await page.getByRole("button", { name: "Start Guided Demo" }).click();
+  await expect(page.getByRole("heading", { name: "A living business" })).toBeVisible();
+  const trigger = page.getByRole("button", { name: "Trigger return fault" });
+  await trigger.click();
+  await expect(trigger).toBeDisabled();
+  await expect(page.getByRole("heading", { name: "A living business" })).toBeVisible();
+  await expect(page.getByRole("alert").first()).toContainText("Temporary incident service error");
+  await expect(page.getByRole("button", { name: "Retry action" })).toBeVisible();
+  await page.getByRole("button", { name: "Retry · Trigger return fault" }).click();
+  await expect(page.getByRole("heading", { name: "Evidence before action" })).toBeVisible();
+  expect(incidentRequests).toBe(2);
 });
 
 test("settlement false alarm reconciles to the bank credit", async ({ page }) => {

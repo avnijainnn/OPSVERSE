@@ -106,6 +106,8 @@ def account_data(db: Session, user: User) -> dict:
 @router.post("/register", dependencies=[Depends(same_origin)])
 def register(data: Registration, response: Response, db: Session = Depends(get_db)):
     secret()
+    if os.getenv("REGISTRATION_ENABLED", "true").strip().lower() != "true":
+        raise HTTPException(403, "Pilot registration is closed; contact the workspace owner")
     if db.scalar(select(User.id).where(User.email == data.email)):
         raise HTTPException(409, "Account already exists")
     user = User(email=data.email, password_hash=password_hash.hash(data.password))

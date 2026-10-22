@@ -130,8 +130,8 @@ test("supplier recovery pays its cost and prevents lost demand", async ({ page }
   await page.getByRole("button", { name: "Compare futures" }).click();
   await expect(page.getByRole("heading", { name: "No intervention" })).toBeVisible({ timeout: 60_000 });
   await expect(page.locator(".branch-card.recovery .branch-metric").filter({ hasText: "Intervention cost" }).locator("strong")).toHaveText("₹15,000.00");
-  const baselineLost = await page.locator(".branch-card").first().locator(".branch-metric").filter({ hasText: "Lost demand" }).locator("strong").textContent();
-  const recoveredLost = await page.locator(".branch-card").last().locator(".branch-metric").filter({ hasText: "Lost demand" }).locator("strong").textContent();
+  const baselineLost = await page.locator(".branch-card").first().locator(".branch-metric").filter({ hasText: "Unfulfilled demand" }).locator("strong").textContent();
+  const recoveredLost = await page.locator(".branch-card.recovery").locator(".branch-metric").filter({ hasText: "Unfulfilled demand" }).locator("strong").textContent();
   expect(Number(baselineLost)).toBeGreaterThan(Number(recoveredLost));
   await page.getByRole("button", { name: "Approve in sandbox" }).click();
   await page.getByRole("button", { name: "Incidents" }).click();
@@ -149,7 +149,7 @@ test("genuine missing payout remains open after a dispute", async ({ page }) => 
   await expect(page.locator(".branch-card.recovery .branch-metric").filter({ hasText: "Payout disputes" }).locator("strong")).toHaveText("1");
   await page.getByRole("button", { name: "Approve in sandbox" }).click();
   await page.getByRole("button", { name: "Incidents" }).click();
-  await expect(page.getByText("Dispute opened; payout remains unreconciled")).toBeVisible();
+  await expect(page.getByText("Dispute opened; payout remains unreconciled").first()).toBeVisible();
   await page.getByRole("button", { name: "Money Trail" }).click();
   await expect(page.locator(".finance-summary .metric").filter({ hasText: "UNRECONCILED" }).locator(".metric-value")).toHaveText("₹110.00");
 });

@@ -10,12 +10,13 @@ import os
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from .live_ai import KINDS, SourceArgs, investigate, proposals_from_trace, source_record, structured_investigation
 from .live_evidence import evidence_graph
 from .live_backtest import evaluate_order_backtest
+from .live_demand import VERSION as DEMAND_MODEL_VERSION, demand_model, modeled_schedule
 from .live_receipt import receipt_data, render_receipt
 from .live_rate_limit import check_analysis_budget
 from .live_auth import current_user, get_db, same_origin, workspace_member
@@ -74,6 +75,9 @@ def dashboard(workspace_id: str, user: User = Depends(current_user), db: Session
     imports = db.scalars(select(ImportBatch).where(ImportBatch.workspace_id == workspace_id)
                          .order_by(ImportBatch.created_at.desc()).limit(10)).all()
     return {"mode": "live_imported", "workspace_id": workspace_id,
+            "analysis_models": {"incident_llm": ("credentials_present" if all(
+                os.getenv(key) for key in ("LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY"))
+                else "unconfigured"), "demand_model": DEMAND_MODEL_VERSION},
             "metrics": {"gross_orders_paise": sum(item.total_paise for item in orders),
                         "order_count": len(orders), "product_count": len(products),
                         "sellable_units": sum(item.sellable for item in latest.values()),
@@ -96,11 +100,18 @@ def dashboard(workspace_id: str, user: User = Depends(current_user), db: Session
                         "channel": item.channel, "total_paise": item.total_paise,
                         "source": item.source_system, "import_batch_id": item.import_batch_id}
                        for item in sorted(orders, key=lambda x: x.placed_at, reverse=True)[:30]],
+            "products": [{"id": item.id, "external_id": item.external_id,
+                          "sku": item.sku, "name": item.name, "price_paise": item.price_paise}
+                         for item in sorted(products, key=lambda x: x.sku)[:100]],
             "inventory": [{"id": item.id, "external_id": item.external_id,
                            "sku": item.sku, "location": item.location, "sellable": item.sellable,
                            "reserved": item.reserved, "quarantined": item.quarantined,
                            "observed_at": item.observed_at.isoformat(), "import_batch_id": item.import_batch_id}
                           for item in sorted(latest.values(), key=lambda x: x.sku)[:100]],
+            "returns": [{"id": item.id, "external_id": item.external_id,
+                         "sku": item.sku, "quantity": item.quantity,
+                         "condition": item.condition, "status": item.status}
+                        for item in sorted(returns, key=lambda x: x.recorded_at, reverse=True)[:100]],
             "incidents": [incident_data(item) for item in sorted(incidents, key=lambda x: x.created_at, reverse=True)[:30]],
             "recent_imports": [{"id": item.id, "kind": item.kind, "imported_count": item.imported_count,
                                 "status": item.status} for item in imports]}
@@ -381,6 +392,8 @@ class ScenarioRequest(BaseModel):
     incident_id: str | None = None
     seed: int = Field(default=2026, ge=0, le=2_147_483_647)
     demand: int = Field(default=30, ge=1, le=500)
+    demand_mode: str = Field(default="manual", pattern="^(manual|observed)$")
+    horizon_hours: int = Field(default=24, ge=1, le=168)
     disruption_units: int = Field(default=0, ge=0, le=100000)
     unit_multiplier: int = Field(default=1, ge=1, le=5)
     supplier_lead_time: int = Field(default=0, ge=0, le=500)
@@ -404,6 +417,16 @@ def scenario_options(data: dict) -> dict:
         "expedited_delivery_cost_paise", "unfulfilled_cost_paise", "return_processing_time",
         "inspection_result", "supplier_available", "procurement_unit_cost_paise",
         "holding_cost_paise_per_unit_hour", "return_inspection_cost_paise")}
+
+
+def scenario_demand(state: dict, sku: str, mode: str, horizon_hours: int,
+                    seed: int) -> tuple[dict | None, list[dict] | None]:
+    if mode == "manual":
+        return None, None
+    model = demand_model(state, sku, horizon_hours)
+    if model["status"] != "ready":
+        raise ValueError(model["message"])
+    return model, modeled_schedule(model, seed)
 
 
 class SnapshotRequest(BaseModel):
@@ -472,6 +495,22 @@ def snapshots(workspace_id: str, user: User = Depends(current_user), db: Session
              "created_at": item.created_at.isoformat()} for item in records]
 
 
+@router.get("/snapshots/{snapshot_id}/demand-model")
+def snapshot_demand_model(workspace_id: str, snapshot_id: str, sku: str,
+                          horizon_hours: int = 24, user: User = Depends(current_user),
+                          db: Session = Depends(get_db)):
+    scoped(workspace_id, user, db)
+    snapshot = db.get(LiveSnapshot, snapshot_id)
+    if not snapshot or snapshot.workspace_id != workspace_id:
+        raise HTTPException(404, "Snapshot not found")
+    if sku not in {row["sku"] for row in snapshot.source_state["products"]}:
+        raise HTTPException(400, "SKU is absent from this observed snapshot")
+    try:
+        return demand_model(snapshot.source_state, sku, horizon_hours)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @router.post("/snapshots/{snapshot_id}/compare", dependencies=[Depends(same_origin)])
 def compare_snapshot(workspace_id: str, snapshot_id: str, request: ScenarioRequest,
                      user: User = Depends(current_user), db: Session = Depends(get_db)):
@@ -486,9 +525,12 @@ def compare_snapshot(workspace_id: str, snapshot_id: str, request: ScenarioReque
             raise HTTPException(404, "Incident not found")
     try:
         before_state, _ = freeze_state(db, workspace_id)
+        model, schedule = scenario_demand(snapshot.source_state, request.sku, request.demand_mode,
+                                          request.horizon_hours, request.seed)
+        demand = len(schedule) if schedule is not None else request.demand
         branches = simulate_branches(snapshot.source_state, request.sku, request.seed,
-                                     request.demand, request.disruption_units, request.unit_multiplier,
-                                     **scenario_options(request.model_dump()))
+                                     demand, request.disruption_units, request.unit_multiplier,
+                                     **scenario_options(request.model_dump()), demand_schedule=schedule)
         baseline, recovery = branches[:2]
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -497,9 +539,12 @@ def compare_snapshot(workspace_id: str, snapshot_id: str, request: ScenarioReque
                           baseline=baseline, recovery=recovery, branches=branches,
                           disruption={"sku": request.sku, "incident_id": request.incident_id,
                                       "unavailable_units": request.disruption_units,
-                                      "demand": request.demand, "unit_multiplier": request.unit_multiplier,
+                                      "demand": demand, "demand_mode": request.demand_mode,
+                                      "horizon_hours": request.horizon_hours,
+                                      "demand_model": model, "unit_multiplier": request.unit_multiplier,
                                       **scenario_options(request.model_dump())},
-                          assumptions=["Each hypothetical demand event requests 1–3 units multiplied by the selected estimate",
+                          assumptions=[("Observed SKU order quantities and seven-day order rate drive demand events" if model else
+                                        "Each hypothetical demand event requests 1–3 units multiplied by the selected estimate"),
                                        "Unit price is the observed product price; revenue is a forecast",
                                        "Simulation clock, inspection delay, and supplier lead time use hours",
                                        "Disputed units require the selected simulated inspection result",
@@ -517,6 +562,7 @@ def compare_snapshot(workspace_id: str, snapshot_id: str, request: ScenarioReque
     return {"id": result.id, "snapshot_id": snapshot.id, "source_digest": snapshot.source_digest,
             "kind": result.kind, "seed": result.seed, "baseline": baseline, "recovery": recovery,
             "branches": branches, "disruption": result.disruption,
+            "demand_model": model,
             "assumptions": result.assumptions,
             "source_records_unchanged": {k: v for k, v in before_state.items() if k != "observed_cutoff"} ==
                                          {k: v for k, v in after_state.items() if k != "observed_cutoff"}}
@@ -530,6 +576,7 @@ def scenarios(workspace_id: str, user: User = Depends(current_user), db: Session
     return [{"id": item.id, "snapshot_id": item.snapshot_id, "kind": item.kind,
              "seed": item.seed, "baseline": item.baseline, "recovery": item.recovery,
              "branches": item.branches, "disruption": item.disruption,
+             "demand_model": (item.disruption or {}).get("demand_model"),
              "assumptions": item.assumptions,
              "created_at": item.created_at.isoformat()} for item in records]
 
@@ -615,7 +662,10 @@ def verify_scenario(workspace_id: str, scenario_id: str,
     snapshot = db.get(LiveSnapshot, item.snapshot_id)
     replayed = simulate_branches(snapshot.source_state, data["sku"], item.seed,
                                  data["demand"], data["unavailable_units"], data["unit_multiplier"],
-                                 **scenario_options(data))
+                                 **scenario_options(data),
+                                 demand_schedule=scenario_demand(snapshot.source_state, data["sku"],
+                                                                 data.get("demand_mode", "manual"),
+                                                                 data.get("horizon_hours", 24), item.seed)[1])
     verified = replayed == item.branches
     digest = hashlib.sha256(json.dumps(replayed, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     detail = {"verified": verified, "branch_digest": digest,
@@ -658,6 +708,8 @@ def scenario_sensitivity(workspace_id: str, scenario_id: str, data: SensitivityR
     if data.variable not in {"demand", "unavailable_units", "unit_multiplier",
                              *(scenario_options({}).keys() - {"inspection_result", "supplier_available"})}:
         raise HTTPException(400, "Unsupported assumption")
+    if data.variable == "demand" and item.disruption.get("demand_mode") == "observed":
+        raise HTTPException(400, "Observed demand is derived from snapshot history; vary other assumptions or use manual demand")
     if any(seed < 0 or seed > 2_147_483_647 for seed in data.seeds):
         raise HTTPException(400, "Seeds must be between 0 and 2147483647")
     snapshot = db.get(LiveSnapshot, item.snapshot_id)
@@ -667,11 +719,19 @@ def scenario_sensitivity(workspace_id: str, scenario_id: str, data: SensitivityR
         params[data.variable] = value
         try:
             request = ScenarioRequest(sku=params["sku"], demand=params["demand"],
+                                      demand_mode=params.get("demand_mode", "manual"),
+                                      horizon_hours=params.get("horizon_hours", 24),
                                       seed=item.seed, disruption_units=params["unavailable_units"],
                                       unit_multiplier=params["unit_multiplier"], **scenario_options(params))
-            trials = [simulate_branches(snapshot.source_state, request.sku, seed, request.demand,
-                                        request.disruption_units, request.unit_multiplier,
-                                        **scenario_options(request.model_dump())) for seed in data.seeds]
+            trials = []
+            for seed in data.seeds:
+                _, schedule = scenario_demand(snapshot.source_state, request.sku,
+                                              request.demand_mode, request.horizon_hours, seed)
+                trials.append(simulate_branches(snapshot.source_state, request.sku, seed,
+                                                len(schedule) if schedule is not None else request.demand,
+                                                request.disruption_units, request.unit_multiplier,
+                                                **scenario_options(request.model_dump()),
+                                                demand_schedule=schedule))
         except (ValueError, KeyError) as exc:
             raise HTTPException(400, str(exc)) from exc
         summaries = []
@@ -687,11 +747,20 @@ def scenario_sensitivity(workspace_id: str, scenario_id: str, data: SensitivityR
 
 @router.get("/observations")
 def observations(workspace_id: str, limit: int = 100, before: datetime | None = None,
+                 before_id: str | None = None,
                  user: User = Depends(current_user), db: Session = Depends(get_db)):
     scoped(workspace_id, user, db)
     if limit < 1 or limit > 500:
         raise HTTPException(400, "Limit must be between 1 and 500")
     query = select(Observation).where(Observation.workspace_id == workspace_id)
+    if before and before_id:
+        raise HTTPException(400, "Use either before or before_id")
+    if before_id:
+        cursor = db.get(Observation, before_id)
+        if not cursor or cursor.workspace_id != workspace_id:
+            raise HTTPException(404, "Observation not found")
+        query = query.where(or_(Observation.ingested_at < cursor.ingested_at,
+                                and_(Observation.ingested_at == cursor.ingested_at, Observation.id < cursor.id)))
     if before:
         if before.tzinfo is None:
             raise HTTPException(400, "History timestamp needs a timezone")

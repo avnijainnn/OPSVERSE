@@ -1,0 +1,40 @@
+# Use with docker-compose.yml for a controlled HTTPS Live pilot.
+# Compose variable interpolation fails if a required setting is absent.
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a random URL-safe PostgreSQL password}
+    restart: unless-stopped
+  api:
+    environment:
+      DATABASE_URL: postgresql+psycopg://opsverse:${POSTGRES_PASSWORD:?Set a random URL-safe PostgreSQL password}@db:5432/opsverse
+      SESSION_SECRET: ${SESSION_SECRET:?Set a random 32+ character signing secret}
+      COOKIE_SECURE: "true"
+      CORS_ORIGINS: ${CORS_ORIGINS:?Set the exact HTTPS web origin}
+      FRONTEND_URL: ${FRONTEND_URL:?Set the exact HTTPS web origin}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Set and back up a Fernet key}
+      SHOPIFY_REDIRECT_URI: ${NEXT_PUBLIC_API_URL:?Set the HTTPS API origin}/live/shopify/callback
+      PUBLIC_SHOWCASE: "false"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+  sync:
+    environment:
+      DATABASE_URL: postgresql+psycopg://opsverse:${POSTGRES_PASSWORD:?Set a random URL-safe PostgreSQL password}@db:5432/opsverse
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Set and back up a Fernet key}
+      SHOPIFY_REDIRECT_URI: ${NEXT_PUBLIC_API_URL:?Set the HTTPS API origin}/live/shopify/callback
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set the HTTPS API origin}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/live').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

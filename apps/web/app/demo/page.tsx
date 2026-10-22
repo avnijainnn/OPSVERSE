@@ -178,9 +178,17 @@ export default function Home() {
     }
     else if(guidedStep===3){if(await decide(true)){setGuidedStep(4);setView("Incidents")}else retryRef.current=()=>advanceGuide()}
     else if(guidedStep===4){
-      const incident=incidentRef.current;const savedScenario=scenarioRef.current;if(!incident||!savedScenario)return;
-      const receipt=await execute(async()=>{const opened=window.open(`${API}/incidents/${incident.incident_id}/receipt?result_id=${encodeURIComponent(savedScenario.result_id)}`,"_blank","noopener,noreferrer");if(!opened)throw new Error("The Decision Receipt was blocked by the browser. Allow pop-ups and retry.");return opened},()=>{setView("Scenario Lab");setGuidedStep(5)},()=>advanceGuide());
-      if(!receipt)retryRef.current=()=>advanceGuide();
+      const incident=incidentRef.current;
+      const savedScenario=scenarioRef.current;
+
+      if(!incident||!savedScenario)return;
+
+      const url=`${API}/incidents/${incident.incident_id}/receipt?result_id=${encodeURIComponent(savedScenario.result_id)}`;
+
+      window.open(url,"_blank","noopener,noreferrer");
+
+      setView("Scenario Lab");
+      setGuidedStep(5);
     }
     else if(guidedStep===5){
       const savedScenario=scenarioRef.current;if(!savedScenario)return;

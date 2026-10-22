@@ -24,6 +24,12 @@ def test_same_seed_and_replay(db):
     assert project(a) == project(b)
     assert [e["sequence_number"] for e in a] == list(range(1, len(a) + 1))
     assert project(a[:10]) != project(a)
+    copied = project([])
+    for event in a:
+        prior = copied
+        copied = apply(copied, event)
+        assert copied is not prior
+    assert copied == project(a)
 
 
 def test_live_reader_can_read_while_a_writer_holds_a_branch_transaction(db):

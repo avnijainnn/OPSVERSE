@@ -26,7 +26,8 @@ def simulate_branches(state: dict, sku: str, seed: int, demand: int,
                       supplier_available: bool = True,
                       procurement_unit_cost_paise: int = 0,
                       holding_cost_paise_per_unit_hour: int = 0,
-                      return_inspection_cost_paise: int = 0) -> list[dict]:
+                      return_inspection_cost_paise: int = 0,
+                      demand_schedule: list[dict] | None = None) -> list[dict]:
     """Replay identical demand in three isolated policies; all clock values are hours."""
     if not 1 <= demand <= 500 or disruption_units < 0 or not 1 <= unit_multiplier <= 5:
         raise ValueError("Demand, disruption, or units per demand is outside allowed limits")
@@ -62,10 +63,21 @@ def simulate_branches(state: dict, sku: str, seed: int, demand: int,
     price = int(products[-1]["price_paise"])
     clock = 0
     arrivals = []
-    for number in range(1, demand + 1):
-        rng = random.Random(seed + number * 7919)
-        clock += 1 + rng.randrange(4)
-        arrivals.append((clock, number, rng.randrange(1, 4) * unit_multiplier))
+    if demand_schedule is not None:
+        if len(demand_schedule) != demand:
+            raise ValueError("Modeled demand count does not match the supplied schedule")
+        for number, row in enumerate(demand_schedule, 1):
+            at, units = row.get("time_hours"), row.get("units")
+            if (not isinstance(at, int) or not isinstance(units, int) or
+                    at < 1 or at > 168 or units < 1 or units > 10000 or at < clock):
+                raise ValueError("Modeled demand schedule is invalid")
+            clock = at
+            arrivals.append((at, number, units * unit_multiplier))
+    else:
+        for number in range(1, demand + 1):
+            rng = random.Random(seed + number * 7919)
+            clock += 1 + rng.randrange(4)
+            arrivals.append((clock, number, rng.randrange(1, 4) * unit_multiplier))
     horizon = max(24, arrivals[-1][0] + 1)
 
     def run(index: int) -> dict:

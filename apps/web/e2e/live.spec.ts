@@ -37,6 +37,68 @@ test("live orders import persists through refresh and opens the source row", asy
   await page.locator(".live-inspector .live-record").first().click();
   await expect(page.getByText("SOURCE RECORD", { exact: true })).toBeVisible();
   await expect(page.locator(".event-drawer pre").last()).toContainText('"channel": "CSV"');
+  await page.getByRole("button", { name: "Close", exact: true }).last().click();
+  await expect(page.getByRole("heading", { name: "Observation timeline" })).toBeVisible();
+  await page.getByRole("button", { name: "Replay", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Observation 1 of/ })).toBeVisible();
+  await expect(page.locator(".live-replay-event")).toHaveCount(2);
+  await page.getByRole("button", { name: "Step forward" }).click();
+  await page.getByRole("button", { name: "Inspect recorded payload" }).click();
+  await expect(page.getByText("OBSERVED SOURCE EVENT", { exact: true })).toBeVisible();
+  await expect(page.locator(".event-drawer pre").first()).toContainText('"source_system"');
+  await page.getByRole("button", { name: "Close", exact: true }).last().click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Connections and access" })).toBeVisible();
+  await expect(page.getByText("Actual Records Ltd").first()).toBeVisible();
+  await page.getByRole("button", { name: "Start guided tour" }).click();
+  await expect(page.getByRole("heading", { name: "See your business" })).toBeVisible();
+  await page.getByRole("button", { name: "Next step" }).click();
+  await expect(page.getByRole("heading", { name: "Bring in source records" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Integrations" })).toBeVisible();
+  await page.getByRole("button", { name: "Close guided tour" }).click();
+});
+
+test("product node opens imported product source", async ({ page }) => {
+  await signup(page);
+  await importCsv(page, "products", productCsv);
+  await page.getByRole("button", { name: "Live Twin" }).click();
+  await page.locator(".business-extra .business-node").filter({ hasText: "Products" }).click();
+  await expect(page.locator(".live-inspector")).toContainText("Canvas bag");
+  await page.locator(".live-inspector .live-record").first().click();
+  await expect(page.getByText("SOURCE RECORD", { exact: true })).toBeVisible();
+  await expect(page.locator(".event-drawer pre").first()).toContainText('"sku": "BAG-1"');
+});
+
+test("scenario uses observed SKU demand when enough order history exists", async ({ page }) => {
+  await signup(page);
+  await importCsv(page, "products", productCsv);
+  await importCsv(page, "inventory", inventoryCsv);
+  const now = Date.now();
+  const orderRows = Array.from({ length: 12 }, (_, index) =>
+    `model-${index},C-${index},fulfilled,CSV,1000.00,${new Date(now - ((6 - Math.floor(index / 2)) * 24 + 1) * 3600_000).toISOString()}`).join("\n");
+  const itemRows = Array.from({ length: 12 }, (_, index) =>
+    `model-item-${index},model-${index},BAG-1,${1 + index % 3},100000`).join("\n");
+  await importCsv(page, "orders", `external_id,customer_ref,status,channel,total,placed_at\n${orderRows}\n`);
+  await importCsv(page, "order_items", `item_id,order_id,sku,quantity,unit_price_paise\n${itemRows}\n`);
+  await page.getByRole("button", { name: "Scenario Lab" }).click();
+  await page.getByRole("button", { name: "Create snapshot" }).click();
+  await expect(page.getByText(/sku-seven-day-rate-v1: 2 attempts/)).toBeVisible();
+  await page.getByLabel("Demand source").selectOption("observed");
+  await page.getByRole("button", { name: "Compare futures" }).click();
+  await expect(page.getByText(/Saved run used sku-seven-day-rate-v1/)).toBeVisible();
+  await page.getByRole("button", { name: "Verify sandbox replay" }).click();
+  await expect(page.getByText(/Sandbox replay verified against saved branches/)).toBeVisible();
+});
+
+test("replay loads source history beyond the first 500 observations", async ({ page }) => {
+  await signup(page);
+  const rows = Array.from({ length: 501 }, (_, index) => `p${index},SKU-${index},Product ${index},10.00`).join("\n");
+  await importCsv(page, "products", `external_id,sku,name,price\n${rows}\n`);
+  await page.getByRole("button", { name: "Replay", exact: true }).click();
+  await expect(page.locator(".live-replay-event")).toHaveCount(500);
+  await page.getByRole("button", { name: "Load older observations" }).click();
+  await expect(page.locator(".live-replay-event")).toHaveCount(501);
+  await expect(page.getByRole("heading", { name: "Observation 1 of 501" })).toBeVisible();
 });
 
 test("real inventory mismatch is investigated and compared without source writes", async ({ page }) => {

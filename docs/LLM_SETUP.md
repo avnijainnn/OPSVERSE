@@ -2,6 +2,8 @@
 
 Live investigations work without a model and are labeled **Deterministic fallback**. No model credentials were present during this repair, so external inference has **not** been verified.
 
+The Scenario Lab's observed demand model runs locally and deterministically from snapshot order items. It does not call this LLM. The LLM is used for bounded, evidence-backed incident investigation; simulation arithmetic and replay remain reproducible without it.
+
 To enable a compatible chat-completions endpoint, set these server-only variables:
 
 ```text

@@ -12,7 +12,7 @@ Live incident investigations use workspace-scoped read tools. With `LLM_BASE_URL
 The [real-world completion audit](docs/REAL_WORLD_COMPLETION_GAPS.md) records implementation status and verification limits.
 The [cofounder walkthrough](docs/COFOUNDER_DEMO.md) and [validation matrix](docs/VALIDATION_AND_LIMITATIONS.md) show the actual demo path and what remains unverified.
 
-The [Three-Futures repair audit](docs/REPAIR_AND_SHOWCASE_AUDIT.md), [synthetic showcase deployment guide](docs/DEPLOYMENT_SHOWCASE.md), and [optional model setup](docs/LLM_SETUP.md) describe the current event-clock simulation, replay and verification boundary.
+The [Three-Futures repair audit](docs/REPAIR_AND_SHOWCASE_AUDIT.md), [synthetic showcase deployment guide](docs/DEPLOYMENT_SHOWCASE.md), [Live deployment readiness guide](docs/LIVE_DEPLOYMENT_READINESS.md), and [optional model setup](docs/LLM_SETUP.md) describe the current event-clock simulation, replay and verification boundary.
 
 ![Event-grounded synthetic Live Twin](docs/screenshots/demo-live-twin-desktop.png)
 
@@ -93,10 +93,10 @@ The existing demo SQLite ledger remains separate; old synthetic runs are intenti
 ## Current limitations
 
 - **External integrations are not yet verified with live accounts.** Shopify and Razorpay adapter contracts, signed Shopify and Razorpay webhooks, and model-response validation were tested locally. No development-store installation, Razorpay test-account sync or webhook delivery, or real model inference was run because credentials were unavailable. Model accuracy, latency, and cost therefore remain unmeasured.
-- **This is not a production deployment.** PostgreSQL 14 and the real API passed local tests, including a Chromium browser journey, but a managed database, remote CI run, public hosting, failover, and live provider connectivity have not been verified. Public operation still needs managed secrets, HTTPS and secure cookies, controlled registration, distributed rate limits, database network restrictions, background job limits, retention, and monitoring.
+- **This is not a production deployment.** The API passed local and PostgreSQL 17 runtime tests, and 12 Chromium browser journeys passed against the Compose stack. A managed database, remote CI run, public hosting, failover, and live provider connectivity have not been verified. Public operation still needs managed secrets, HTTPS and secure cookies, controlled registration, distributed rate limits, database network restrictions, background job limits, retention, and monitoring. A [controlled private pilot configuration](docs/LIVE_DEPLOYMENT_READINESS.md) is available.
 - **Evaluation samples remain curated.** Detection precision and recall were measured on 16 hand-labeled CSV workspaces (seven positive and nine negative); replay and recovery checks used 20 seeded runs across four synthetic incident types. These results do not establish accuracy across merchants or real provider data. See the [validation report](docs/VALIDATION_AND_LIMITATIONS.md) for counts and methods.
 - **Source history and sync coverage still have boundaries.** Observed history starts at first ingestion. Shopify nested GraphQL reads now paginate, but standard `read_orders` limits older history unless the app is approved and reauthorized for `read_all_orders`; a top-level or nested connection over 10,000 records fails explicitly. Compose schedules read-only Razorpay polling, dense historical reads are partitioned, and a signed webhook receiver is available. Merchant-side webhook registration and real provider retention/completeness remain unverified.
-- **The two experiences differ.** Both compare three branches, but the synthetic demo uses an event ledger and delayed manual-review policy, while authenticated Live Operations uses imported observations and an inventory-policy simulator. The demo has a Settings screen; Live Operations has no dedicated workspace-settings page. Every recovery action and provider-facing outcome is sandbox-only; OpsVerse does not make real financial or inventory writes.
+- **The two experiences differ in their data and models.** Both have a network view, replay, Settings, a guided tour and three-branch comparison. The synthetic demo uses a seeded event ledger and delayed manual-review policy; authenticated Live Operations uses imported observations and an inventory-policy simulator. Every recovery action and provider-facing outcome is sandbox-only; OpsVerse does not make real financial or inventory writes.
 
 ## Future scope
 
@@ -104,7 +104,7 @@ The following work is proposed and **not completed** in this release:
 
 1. Validate Shopify installation, GraphQL pagination, and webhook delivery with a development store; validate Razorpay payment, refund, and settlement reads with a test merchant; measure real model findings, latency, and cost with a configured endpoint.
 2. Prepare a public deployment with managed PostgreSQL, secret storage, HTTPS, access controls, distributed rate limiting, background job concurrency limits, retention, monitoring, and failover tests. Run the configured CI pipeline remotely and add deployment checks.
-3. Add dedicated workspace settings to Live Operations and expand the recovery-policy engine beyond its current inventory and delayed-review models. Keep simulated actions isolated from merchant systems.
+3. Expand the recovery-policy engine beyond its current inventory and delayed-review models. Keep simulated actions isolated from merchant systems.
 4. Expand labeled evaluation across more merchants, incident types, negative controls, and financial edge cases before making broader detection or AI-performance claims.
 
 See [architecture](docs/ARCHITECTURE.md), [data model](docs/DATA_MODEL.md), [product requirements](docs/PRD.md), and [gap analysis](docs/LIVE_OPERATIONS_GAP_ANALYSIS.md). The initial simulator took general inspiration from the [event-sourced WMS prototype](https://github.com/sri-pranav-r/event-sourced-wms) and [financial reconciliation agent](https://github.com/Manu6259/financial-reconciliation-agent); no code or branding was copied.

@@ -19,6 +19,11 @@ class PolicyError(ValueError):
 def apply(state: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
     """Apply one validated event to a copied projection; never mutates the caller."""
     s = deepcopy(state)
+    return _apply_mutating(s, event)
+
+
+def _apply_mutating(s: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
+    """Apply to a projection owned by the caller, avoiding repeated copies during replay."""
     p, kind = event["payload"], event["event_type"]
     if kind == "ProductStocked":
         sku = p["sku"]
@@ -169,7 +174,7 @@ def apply(state: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
 def project(events: list[dict[str, Any]]) -> dict[str, Any]:
     state = empty_state()
     for event in events:
-        state = apply(state, event)
+        _apply_mutating(state, event)
     return state
 
 

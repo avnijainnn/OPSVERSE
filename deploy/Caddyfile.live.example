@@ -1,0 +1,21 @@
+# Set PILOT_HOST and PILOT_BASIC_AUTH_HASH in Caddy's environment.
+# Run Caddy on the same host as the localhost-bound Compose services.
+{$PILOT_HOST} {
+    # Only signed provider POST callbacks bypass the pilot access gate.
+    @requires_auth {
+        not {
+            method POST
+            path /api/live/shopify/webhooks /api/live/razorpay/webhooks/*
+        }
+    }
+    basic_auth @requires_auth {
+        pilot {$PILOT_BASIC_AUTH_HASH}
+    }
+
+    handle_path /api/* {
+        reverse_proxy 127.0.0.1:8000
+    }
+    handle {
+        reverse_proxy 127.0.0.1:3000
+    }
+}

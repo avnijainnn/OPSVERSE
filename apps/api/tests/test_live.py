@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -63,6 +64,63 @@ ORDERS = ("external_id,customer_ref,status,channel,total,placed_at\n"
           "o-2,C-002,fulfilled,Shopify,1000.00,2026-10-14T11:00:00+05:30\n")
 
 
+def test_observed_sku_demand_drives_replay_and_rejects_sparse_history(client):
+    workspace = register(client)
+    upload(client, workspace, "products", PRODUCTS)
+    upload(client, workspace, "inventory", INVENTORY)
+    now = datetime.now(timezone.utc)
+    orders = "external_id,customer_ref,status,channel,total,placed_at\n"
+    items = "item_id,order_id,sku,quantity,unit_price_paise\n"
+    for index in range(12):
+        placed = now - timedelta(days=6 - index // 2, hours=1)
+        orders += f"model-order-{index},C-{index},fulfilled,Shopify,1000.00,{placed.isoformat()}\n"
+        items += f"model-item-{index},model-order-{index},BAG-1,{1 + index % 3},100000\n"
+    upload(client, workspace, "orders", orders)
+    upload(client, workspace, "order_items", items)
+    base = f"/live/workspaces/{workspace}"
+    snapshot = client.post(base + "/snapshots", json={}).json()["id"]
+    preview = client.get(base + f"/snapshots/{snapshot}/demand-model",
+                         params={"sku": "BAG-1", "horizon_hours": 24})
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["status"] == "ready"
+    assert preview.json()["forecast_attempts"] == 2
+    assert preview.json()["sample_orders"] == 12
+    compare = client.post(base + f"/snapshots/{snapshot}/compare",
+                          json={"sku": "BAG-1", "demand_mode": "observed", "demand": 100,
+                                "seed": 17, "horizon_hours": 24})
+    assert compare.status_code == 200, compare.text
+    saved = compare.json()
+    assert saved["disruption"]["demand"] == 2
+    assert saved["branches"][0]["demand_schedule"] == saved["branches"][1]["demand_schedule"]
+    assert [row["units"] for row in saved["branches"][0]["demand_schedule"]] != [100, 100]
+    assert client.post(base + f"/scenarios/{saved['id']}/verify", json={}).json()["verified"]
+    sensitivity = client.post(base + f"/scenarios/{saved['id']}/sensitivity",
+                              json={"variable": "restock_units", "values": [0, 2], "seeds": [17, 18]})
+    assert sensitivity.status_code == 200, sensitivity.text
+    assert client.post(base + f"/scenarios/{saved['id']}/sensitivity",
+                       json={"variable": "demand", "values": [1], "seeds": [17]}).status_code == 400
+    other = register(client, "another@example.com", "Other")
+    assert client.get(f"/live/workspaces/{other}/snapshots/{snapshot}/demand-model",
+                      params={"sku": "BAG-1"}).status_code == 404
+
+
+def test_observed_demand_requires_sku_order_items(client):
+    workspace = register(client)
+    upload(client, workspace, "products", PRODUCTS)
+    upload(client, workspace, "inventory", INVENTORY)
+    upload(client, workspace, "orders", ORDERS)
+    base = f"/live/workspaces/{workspace}"
+    snapshot = client.post(base + "/snapshots", json={}).json()["id"]
+    preview = client.get(base + f"/snapshots/{snapshot}/demand-model",
+                         params={"sku": "BAG-1"}).json()
+    assert preview["status"] == "insufficient_history"
+    assert preview["forecast_attempts"] is None
+    assert client.post(base + f"/snapshots/{snapshot}/compare",
+                       json={"sku": "BAG-1", "demand_mode": "observed"}).status_code == 400
+    assert client.post(base + f"/snapshots/{snapshot}/compare",
+                       json={"sku": "BAG-1", "demand": 3}).status_code == 200
+
+
 def test_order_import_persists_and_displays_real_dashboard(client):
     workspace = register(client)
     first = upload(client, workspace, "orders", ORDERS)
@@ -80,6 +138,18 @@ def test_order_import_persists_and_displays_real_dashboard(client):
     with TestClient(app, headers={"Origin": "http://localhost:3000"}) as restarted:
         restarted.cookies.update(client.cookies)
         assert restarted.get(f"/live/workspaces/{workspace}/dashboard").json()["metrics"]["order_count"] == 2
+
+
+def test_observation_history_cursor_paginates_without_gaps(client):
+    workspace = register(client)
+    upload(client, workspace, "orders", ORDERS)
+    endpoint = f"/live/workspaces/{workspace}/observations"
+    all_records = client.get(endpoint).json()
+    first = client.get(endpoint, params={"limit": 1}).json()
+    second = client.get(endpoint, params={"limit": 1, "before_id": first[0]["id"]}).json()
+    assert [*first, *second] == all_records
+    assert client.get(endpoint, params={"before_id": second[0]["id"]}).json() == []
+    assert client.get(endpoint, params={"before_id": "missing"}).status_code == 404
 
 
 def test_incident_graph_resolves_versions_and_enforces_workspace(client):
@@ -370,6 +440,11 @@ def test_order_items_returns_preview_mapping_and_atomic_rejection(client):
                       "external_id,order_external_id,sku,quantity,condition,status\n"
                       "return-1,o-1,BAG-1,1,damaged,received\n")
     assert returned["imported_count"] == 1
+    dashboard = client.get(f"/live/workspaces/{workspace}/dashboard").json()
+    assert dashboard["products"][0]["sku"] == "BAG-1"
+    assert dashboard["products"][0]["price_paise"] == 100000
+    assert dashboard["returns"][0]["external_id"] == "return-1"
+    assert dashboard["returns"][0]["condition"] == "damaged"
     incidents = client.get(f"/live/workspaces/{workspace}/incidents").json()
     damaged = next(item for item in incidents if item["kind"] == "damaged_return_stock")
     assert {item["kind"] for item in damaged["evidence"]} == {"return", "inventory"}

@@ -1,0 +1,27 @@
+# Optional private-pilot hardening. Use alongside both existing Compose files.
+# Example: docker compose -f docker-compose.yml -f deploy/compose.live.yml \
+#   -f deploy/compose.hardening.yml up -d --build
+# This file does NOT make the application an unrestricted public SaaS.
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no",
+              "--maxmemory", "64mb", "--maxmemory-policy", "noeviction"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    mem_limit: 128m
+  api:
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      AUTH_REQUIRE_DURABLE_LIMITS: "true"
+      AUTH_REGISTER_IP_LIMIT: "30"
+      AUTH_REGISTER_ACCOUNT_LIMIT: "4"
+      AUTH_LOGIN_IP_LIMIT: "120"
+      AUTH_LOGIN_ACCOUNT_LIMIT: "12"
+    depends_on:
+      redis:
+        condition: service_healthy

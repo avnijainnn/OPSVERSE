@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .live_auth import current_user, get_db, same_origin, workspace_member
+from .live_auth import current_user, get_db, same_origin, workspace_member, require_workspace_role
 from .live_models import (AuditRecord, BankTransaction, ImportBatch, InventorySnapshot, Order,
                           OrderItem, Payment, Product, Refund, Return, Settlement, User)
 from .live_observations import observe
@@ -209,7 +209,7 @@ def prepare(kind: str, records: list[dict[str, str]], mapping: dict[str, str], w
 @router.post("/preview", dependencies=[Depends(same_origin)])
 async def preview(workspace_id: str, kind: str = Form(...), mapping: str = Form("{}"),
                   file: UploadFile = File(...), user: User = Depends(current_user), db: Session = Depends(get_db)):
-    workspace_member(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db)
     if kind not in SPECS:
         raise HTTPException(400, "Unsupported import type")
     _, headers, records = await read_csv(file)
@@ -226,7 +226,7 @@ async def preview(workspace_id: str, kind: str = Form(...), mapping: str = Form(
 @router.post("", dependencies=[Depends(same_origin)])
 async def import_file(workspace_id: str, kind: str = Form(...), mapping: str = Form("{}"),
                       file: UploadFile = File(...), user: User = Depends(current_user), db: Session = Depends(get_db)):
-    workspace_member(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db)
     if kind not in SPECS:
         raise HTTPException(400, "Unsupported import type")
     content, headers, records = await read_csv(file)

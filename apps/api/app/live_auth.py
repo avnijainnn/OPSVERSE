@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .live_models import AuditRecord, Membership, User, Workspace, session_factory
+from .live_rate_limit import check_auth_budget
 
 router = APIRouter(prefix="/live")
 password_hash = PasswordHash.recommended()
@@ -96,6 +97,14 @@ def workspace_member(workspace_id: str, user: User, db: Session) -> Membership:
     return member
 
 
+def require_workspace_role(workspace_id: str, user: User, db: Session,
+                           allowed: tuple[str, ...] = ("owner", "analyst")) -> Membership:
+    member = workspace_member(workspace_id, user, db)
+    if member.role not in allowed:
+        raise HTTPException(403, "Your workspace role cannot perform this action")
+    return member
+
+
 def account_data(db: Session, user: User) -> dict:
     memberships = db.scalars(select(Membership).where(Membership.user_id == user.id)).all()
     workspaces = [db.get(Workspace, membership.workspace_id) for membership in memberships]
@@ -104,10 +113,12 @@ def account_data(db: Session, user: User) -> dict:
 
 
 @router.post("/register", dependencies=[Depends(same_origin)])
-def register(data: Registration, response: Response, db: Session = Depends(get_db)):
+def register(data: Registration, response: Response, request: Request,
+             db: Session = Depends(get_db)):
     secret()
     if os.getenv("REGISTRATION_ENABLED", "true").strip().lower() != "true":
         raise HTTPException(403, "Pilot registration is closed; contact the workspace owner")
+    check_auth_budget(data.email, request.client.host if request.client else "unknown", "register")
     if db.scalar(select(User.id).where(User.email == data.email)):
         raise HTTPException(409, "Account already exists")
     user = User(email=data.email, password_hash=password_hash.hash(data.password))
@@ -129,8 +140,10 @@ def register(data: Registration, response: Response, db: Session = Depends(get_d
 
 
 @router.post("/login", dependencies=[Depends(same_origin)])
-def login(data: Credentials, response: Response, db: Session = Depends(get_db)):
+def login(data: Credentials, response: Response, request: Request,
+          db: Session = Depends(get_db)):
     secret()
+    check_auth_budget(data.email, request.client.host if request.client else "unknown", "login")
     user = db.scalar(select(User).where(User.email == data.email))
     if user is None or not password_hash.verify(data.password, user.password_hash):
         raise HTTPException(401, "Invalid credentials")

@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .live_auth import current_user, get_db, same_origin, workspace_member
+from .live_auth import current_user, get_db, same_origin, workspace_member, require_workspace_role
 from .live_detection import detect_workspace
 from .live_models import (AuditRecord, BankTransaction, Observation, Order, Payment,
                           ProviderConnection, Refund, Settlement, User, WebhookDelivery, session_factory)
@@ -254,7 +254,7 @@ def status(workspace_id: str, user: User = Depends(current_user), db: Session = 
 @router.post("/connect", dependencies=[Depends(same_origin)])
 def connect(workspace_id: str, data: Credentials, user: User = Depends(current_user),
             db: Session = Depends(get_db)):
-    workspace_member(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db, ("owner",))
     cipher()
     if not KEY_PATTERN.fullmatch(data.key_id):
         raise HTTPException(400, "Enter a valid Razorpay key ID")
@@ -283,7 +283,7 @@ def connect(workspace_id: str, data: Credentials, user: User = Depends(current_u
 @router.post("/webhook-secret", dependencies=[Depends(same_origin)])
 def configure_webhook(workspace_id: str, data: WebhookSecret, user: User = Depends(current_user),
                       db: Session = Depends(get_db)):
-    workspace_member(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db, ("owner",))
     record = connection(db, workspace_id, "razorpay")
     if not record or not record.access_ciphertext:
         raise HTTPException(409, "Connect Razorpay before configuring a webhook")
@@ -402,7 +402,7 @@ def drain_razorpay_deliveries() -> None:
 
 @router.post("/sync", dependencies=[Depends(same_origin)])
 def sync(workspace_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    workspace_member(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db)
     record = connection(db, workspace_id, "razorpay")
     if not record or not record.access_ciphertext:
         raise HTTPException(409, "Connect Razorpay before syncing")
@@ -423,7 +423,7 @@ def sync(workspace_id: str, user: User = Depends(current_user), db: Session = De
 
 @router.post("/disconnect", dependencies=[Depends(same_origin)])
 def disconnect(workspace_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    workspace_member(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db, ("owner",))
     record = connection(db, workspace_id, "razorpay")
     if record:
         record.access_ciphertext = None

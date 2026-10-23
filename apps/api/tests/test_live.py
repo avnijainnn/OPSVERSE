@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from app import store
 from app.live_ai import RelatedArgs, related_records, model_fact, policy_proposals, read_tool, _completion
-from app.live_models import InventorySnapshot, LiveIncident, session_factory
+from app.live_models import InventorySnapshot, LiveIncident, Membership, User, session_factory
 from app.main import app
 
 
@@ -483,3 +483,37 @@ def test_human_incident_review_is_scoped_and_audited(client):
     assert detail["reviews"][0]["reviewer_id"]
     assert client.get(f"/live/workspaces/{workspace}/dashboard").json()["metrics"]["open_incidents"] == 0
     assert client.post(endpoint, json={"status": "resolved", "note": "No source correction"}).status_code == 400
+
+
+def test_workspace_viewer_cannot_mutate_live_records_or_provider_settings(client):
+    workspace = register(client, "role-owner@example.test", "Owner workspace")
+    register(client, "role-viewer@example.test", "Viewer workspace")
+    with session_factory()() as db:
+        viewer = db.query(User).filter_by(email="role-viewer@example.test").one()
+        membership = Membership(workspace_id=workspace, user_id=viewer.id, role="viewer")
+        db.add(membership)
+        db.commit()
+        membership_id = membership.id
+
+    base = f"/live/workspaces/{workspace}"
+    assert client.get(base + "/dashboard").status_code == 200
+    assert client.post(base + "/snapshots", json={}).status_code == 403
+    assert client.post(base + "/imports/preview",
+        data={"kind": "products"},
+        files={"file": ("products.csv", PRODUCTS.encode(), "text/csv")}).status_code == 403
+    assert client.post(base + "/razorpay/disconnect").status_code == 403
+    assert client.post(base + "/shopify/authorize",
+        json={"shop": "example.myshopify.com"}).status_code == 403
+    assert client.post(base + "/scenarios/missing/review",
+        json={"branch_index": 0, "note": "Reviewed"}).status_code == 403
+
+    # Analyst can inspect and import, but cannot change a connected account.
+    with session_factory()() as db:
+        member = db.get(Membership, membership_id)
+        member.role = "analyst"
+        db.commit()
+    assert client.post(base + "/imports/preview",
+        data={"kind": "products"},
+        files={"file": ("products.csv", PRODUCTS.encode(), "text/csv")}).status_code == 200
+    assert client.post(base + "/shopify/authorize",
+        json={"shop": "example.myshopify.com"}).status_code == 403

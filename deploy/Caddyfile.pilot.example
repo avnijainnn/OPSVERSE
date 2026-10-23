@@ -1,0 +1,24 @@
+# Private Live pilot: Caddy process must receive PILOT_HOST and PILOT_BASIC_AUTH_HASH.
+{$PILOT_HOST} {
+    encode zstd gzip
+    @deny_demo {
+        path /demo /demo/* /api/runs /api/runs/* /api/incidents /api/incidents/*
+    }
+    respond @deny_demo "Unavailable on private Live pilot" 404
+
+    @requires_auth {
+        not {
+            method POST
+            path /api/live/shopify/webhooks /api/live/razorpay/webhooks/*
+        }
+    }
+    basic_auth @requires_auth {
+        pilot {$PILOT_BASIC_AUTH_HASH}
+    }
+    handle_path /api/* {
+        reverse_proxy 127.0.0.1:8000
+    }
+    handle {
+        reverse_proxy 127.0.0.1:3000
+    }
+}

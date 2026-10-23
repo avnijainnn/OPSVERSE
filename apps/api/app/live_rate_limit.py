@@ -22,7 +22,7 @@ def _allow_local(key: tuple[str, ...], limit: int, seconds: int, message: str) -
     now = monotonic()
     with _lock:
         calls = _calls[key]
-        while calls and now - calls[0] <= now - seconds:
+        while calls and now - calls[0] >= seconds:
             calls.popleft()
         if len(calls) >= limit:
             retry = max(1, int(seconds - (now - calls[0]) + 1))

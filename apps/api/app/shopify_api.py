@@ -16,7 +16,7 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .live_auth import current_user, get_db, same_origin, workspace_member
+from .live_auth import current_user, get_db, same_origin, workspace_member, require_workspace_role
 from .live_models import (AuditRecord, InventorySnapshot, LiveIncident, LiveInvestigation,
                           LiveScenario, LiveSnapshot, OAuthState, Observation, Order, OrderItem, Payment,
                           Product, ProviderConnection, Refund, Return, User, WebhookDelivery,
@@ -51,7 +51,7 @@ def frontend_url(status: str) -> str:
 @router.post("/workspaces/{workspace_id}/shopify/authorize", dependencies=[Depends(same_origin)])
 def authorize(workspace_id: str, data: AuthorizeInput, user: User = Depends(current_user),
               db: Session = Depends(get_db)):
-    workspace_member(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db, ("owner",))
     app_config()
     cipher()
     shop = validate_shop(data.shop)
@@ -143,7 +143,7 @@ def status(workspace_id: str, user: User = Depends(current_user), db: Session = 
 
 @router.post("/workspaces/{workspace_id}/shopify/sync", dependencies=[Depends(same_origin)])
 def sync(workspace_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    workspace_member(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db)
     record = connection(db, workspace_id, "shopify")
     if not record or not record.access_ciphertext:
         raise HTTPException(409, "Connect Shopify before syncing")
@@ -163,7 +163,7 @@ def sync(workspace_id: str, user: User = Depends(current_user), db: Session = De
 
 @router.post("/workspaces/{workspace_id}/shopify/disconnect", dependencies=[Depends(same_origin)])
 def disconnect(workspace_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    workspace_member(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db, ("owner",))
     record = connection(db, workspace_id, "shopify")
     if record:
         record.status = "not_connected"

@@ -19,7 +19,7 @@ from .live_backtest import evaluate_order_backtest
 from .live_demand import VERSION as DEMAND_MODEL_VERSION, demand_model, modeled_schedule
 from .live_receipt import receipt_data, render_receipt
 from .live_rate_limit import check_analysis_budget
-from .live_auth import current_user, get_db, same_origin, workspace_member
+from .live_auth import current_user, get_db, same_origin, workspace_member, require_workspace_role
 from .live_models import (AuditRecord, BankTransaction, ImportBatch, InventorySnapshot,
                           LiveIncident, LiveInvestigation, LiveScenario, LiveSnapshot,
                           Observation, Order, OrderItem, Payment, Product, ProviderConnection,
@@ -191,7 +191,7 @@ class ConclusionInput(BaseModel):
 @router.post("/incidents/{incident_id}/review", dependencies=[Depends(same_origin)])
 def review_incident(workspace_id: str, incident_id: str, data: ReviewInput,
                     user: User = Depends(current_user), db: Session = Depends(get_db)):
-    scoped(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db)
     if data.status not in {"acknowledged", "reviewed", "open"}:
         raise HTTPException(400, "Choose acknowledged, reviewed, or open")
     record = db.get(LiveIncident, incident_id)
@@ -207,7 +207,7 @@ def review_incident(workspace_id: str, incident_id: str, data: ReviewInput,
 @router.post("/incidents/{incident_id}/conclude", dependencies=[Depends(same_origin)])
 def conclude_incident(workspace_id: str, incident_id: str, data: ConclusionInput,
                       user: User = Depends(current_user), db: Session = Depends(get_db)):
-    scoped(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db)
     if data.outcome not in {"explained", "resolved_by_evidence", "needs_followup"}:
         raise HTTPException(400, "Choose explained, resolved_by_evidence, or needs_followup")
     record = db.get(LiveIncident, incident_id)
@@ -229,7 +229,7 @@ def conclude_incident(workspace_id: str, incident_id: str, data: ConclusionInput
 @router.post("/incidents/{incident_id}/investigate", dependencies=[Depends(same_origin)])
 def investigate_incident(workspace_id: str, incident_id: str, user: User = Depends(current_user),
                          db: Session = Depends(get_db)):
-    scoped(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db)
     check_analysis_budget(user.id, workspace_id, "investigate")
     record = db.get(LiveIncident, incident_id)
     if record is None or record.workspace_id != workspace_id:
@@ -441,7 +441,7 @@ class BacktestRequest(BaseModel):
 @router.post("/backtests", dependencies=[Depends(same_origin)])
 def run_backtest(workspace_id: str, data: BacktestRequest,
                  user: User = Depends(current_user), db: Session = Depends(get_db)):
-    scoped(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db)
     check_analysis_budget(user.id, workspace_id, "backtest")
     history = db.scalars(select(Observation).where(Observation.workspace_id == workspace_id)
                          .order_by(Observation.ingested_at, Observation.id).limit(20000)).all()
@@ -461,7 +461,7 @@ def run_backtest(workspace_id: str, data: BacktestRequest,
 @router.post("/snapshots", dependencies=[Depends(same_origin)])
 def create_snapshot(workspace_id: str, data: SnapshotRequest | None = None,
                     user: User = Depends(current_user), db: Session = Depends(get_db)):
-    scoped(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db)
     try:
         if data and data.observed_cutoff and data.observed_cutoff.tzinfo is None:
             raise ValueError("Snapshot timestamp needs a timezone")
@@ -514,7 +514,7 @@ def snapshot_demand_model(workspace_id: str, snapshot_id: str, sku: str,
 @router.post("/snapshots/{snapshot_id}/compare", dependencies=[Depends(same_origin)])
 def compare_snapshot(workspace_id: str, snapshot_id: str, request: ScenarioRequest,
                      user: User = Depends(current_user), db: Session = Depends(get_db)):
-    scoped(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db)
     check_analysis_budget(user.id, workspace_id, "compare")
     snapshot = db.get(LiveSnapshot, snapshot_id)
     if snapshot is None or snapshot.workspace_id != workspace_id:
@@ -634,7 +634,7 @@ class ScenarioReview(BaseModel):
 @router.post("/scenarios/{scenario_id}/review", dependencies=[Depends(same_origin)])
 def review_scenario(workspace_id: str, scenario_id: str, data: ScenarioReview,
                     user: User = Depends(current_user), db: Session = Depends(get_db)):
-    scoped(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db, ("owner",))
     item = db.get(LiveScenario, scenario_id)
     if not item or item.workspace_id != workspace_id:
         raise HTTPException(404, "Scenario not found")
@@ -652,7 +652,7 @@ def review_scenario(workspace_id: str, scenario_id: str, data: ScenarioReview,
 @router.post("/scenarios/{scenario_id}/verify", dependencies=[Depends(same_origin)])
 def verify_scenario(workspace_id: str, scenario_id: str,
                     user: User = Depends(current_user), db: Session = Depends(get_db)):
-    scoped(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db)
     item = db.get(LiveScenario, scenario_id)
     if not item or item.workspace_id != workspace_id:
         raise HTTPException(404, "Scenario not found")
@@ -700,7 +700,7 @@ class SensitivityRequest(BaseModel):
 @router.post("/scenarios/{scenario_id}/sensitivity", dependencies=[Depends(same_origin)])
 def scenario_sensitivity(workspace_id: str, scenario_id: str, data: SensitivityRequest,
                          user: User = Depends(current_user), db: Session = Depends(get_db)):
-    scoped(workspace_id, user, db)
+    require_workspace_role(workspace_id, user, db)
     check_analysis_budget(user.id, workspace_id, "sensitivity")
     item = db.get(LiveScenario, scenario_id)
     if not item or item.workspace_id != workspace_id:

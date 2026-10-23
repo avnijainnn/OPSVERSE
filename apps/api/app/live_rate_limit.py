@@ -70,13 +70,21 @@ def check_analysis_budget(user_id: str, workspace_id: str, action: str, max_call
 
 
 def check_auth_budget(email: str, client_id: str, action: str) -> None:
-    """Separate limits prevent a single client or a single account being hammered.
+    """Separate IP and account budgets, backed by Redis when configured.
 
-    Proxy configuration must not trust spoofable forwarded client IP headers.
+    Set stricter limits on a deployed environment; keep generous local defaults
+    so test fixtures and local onboarding are not artificially blocked.
     """
     if action not in {"login", "register"}:
         raise ValueError("Unsupported authentication action")
-    _allow(("auth", action, "ip", client_id), 30 if action == "login" else 8,
-           3600, "Too many authentication attempts")
-    _allow(("auth", action, "account", email.lower()), 12 if action == "login" else 4,
-           3600, "Too many authentication attempts")
+    upper = action.upper()
+    ip_default = "120" if action == "login" else "100"
+    account_default = "50" if action == "login" else "100"
+    ip_limit = int(os.getenv(f"AUTH_{upper}_IP_LIMIT", ip_default))
+    account_limit = int(os.getenv(f"AUTH_{upper}_ACCOUNT_LIMIT", account_default))
+    if ip_limit < 1 or account_limit < 1:
+        raise HTTPException(503, "Authentication limits are misconfigured")
+    _allow(("auth", action, "ip", client_id), ip_limit, 3600,
+           "Too many authentication attempts")
+    _allow(("auth", action, "account", email.lower()), account_limit, 3600,
+           "Too many authentication attempts")

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
@@ -15,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from .live_ai import KINDS, SourceArgs, investigate, proposals_from_trace, source_record, structured_investigation
 from .live_agentic import agentic_investigate
+from .agent_jobs import enqueue as enqueue_agent_job, request_cancel, resume as resume_job, serialize as job_data
+from .agent_specialists import correlate
 from .live_rate_limit import check_agent_daily_budget
 from .live_evidence import evidence_graph
 from .live_backtest import evaluate_order_backtest
@@ -22,7 +25,7 @@ from .live_demand import VERSION as DEMAND_MODEL_VERSION, demand_model, modeled_
 from .live_receipt import receipt_data, render_receipt
 from .live_rate_limit import check_analysis_budget
 from .live_auth import current_user, get_db, same_origin, workspace_member, require_workspace_role
-from .live_models import (AuditRecord, BankTransaction, ImportBatch, InventorySnapshot,
+from .live_models import (AuditRecord, AgentJob, BankTransaction, ImportBatch, InventorySnapshot,
                           LiveIncident, LiveInvestigation, LiveScenario, LiveSnapshot,
                           Observation, Order, OrderItem, Payment, Product, ProviderConnection,
                           Refund, Return, Settlement, User)
@@ -284,6 +287,102 @@ def agentic_investigate_incident(workspace_id: str, incident_id: str,
             "proposals": proposals_from_trace(finding.tool_trace),
             "agentic_critic_passed": any(item.get("tool") == "agent_critic" and
                                          item.get("status") == "passed" for item in finding.tool_trace)}
+
+
+
+class AgentJobRequest(BaseModel):
+    incident_id: str = Field(min_length=1, max_length=36)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=160)
+    max_model_calls: int = Field(default=7, ge=1, le=20)
+    max_cost_microusd: int = Field(default=200000, ge=10000, le=10000000)
+
+
+@router.post("/agent/jobs", dependencies=[Depends(same_origin)], status_code=202)
+def queue_agent_job(workspace_id: str, data: AgentJobRequest,
+                    user: User = Depends(current_user), db: Session = Depends(get_db)):
+    require_workspace_role(workspace_id, user, db)
+    incident = db.get(LiveIncident, data.incident_id)
+    if incident is None or incident.workspace_id != workspace_id:
+        raise HTTPException(404, "Incident not found")
+    if not all(os.getenv(key) for key in ("LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY")):
+        raise HTTPException(409, "Configure a tool-capable model before queueing an AI job")
+    key = data.idempotency_key or str(uuid4())
+    previous = db.scalar(select(AgentJob).where(
+        AgentJob.workspace_id == workspace_id, AgentJob.idempotency_key == key))
+    if previous is not None:
+        if previous.incident_id != incident.id:
+            raise HTTPException(409, "Idempotency key belongs to a different incident")
+        return job_data(previous)
+    check_analysis_budget(user.id, workspace_id, "agentic_queue", max_calls=8)
+    check_agent_daily_budget(workspace_id)
+    try:
+        job = enqueue_agent_job(db, incident, user.id, key,
+                                max_calls=data.max_model_calls,
+                                max_cost_microusd=data.max_cost_microusd)
+        db.commit()
+        db.refresh(job)
+        return job_data(job)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/agent/jobs")
+def agent_jobs(workspace_id: str, user: User = Depends(current_user),
+               db: Session = Depends(get_db)):
+    scoped(workspace_id, user, db)
+    jobs = db.scalars(select(AgentJob).where(AgentJob.workspace_id == workspace_id)
+                      .order_by(AgentJob.created_at.desc()).limit(100)).all()
+    return [job_data(job) for job in jobs]
+
+
+@router.get("/agent/jobs/{job_id}")
+def agent_job_detail(workspace_id: str, job_id: str, user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    scoped(workspace_id, user, db)
+    job = db.get(AgentJob, job_id)
+    if job is None or job.workspace_id != workspace_id:
+        raise HTTPException(404, "Agent job not found")
+    return job_data(job)
+
+
+@router.post("/agent/jobs/{job_id}/cancel", dependencies=[Depends(same_origin)])
+def cancel_agent_job(workspace_id: str, job_id: str, user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    require_workspace_role(workspace_id, user, db)
+    job = db.get(AgentJob, job_id)
+    if job is None or job.workspace_id != workspace_id:
+        raise HTTPException(404, "Agent job not found")
+    request_cancel(db, job)
+    db.commit()
+    return job_data(job)
+
+
+@router.post("/agent/jobs/{job_id}/resume", dependencies=[Depends(same_origin)])
+def resume_agent_job(workspace_id: str, job_id: str, user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    require_workspace_role(workspace_id, user, db)
+    job = db.get(AgentJob, job_id)
+    if job is None or job.workspace_id != workspace_id:
+        raise HTTPException(404, "Agent job not found")
+    check_analysis_budget(user.id, workspace_id, "agentic_resume", max_calls=6)
+    try:
+        resume_job(db, job)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    db.commit()
+    return job_data(job)
+
+
+@router.get("/incidents/{incident_id}/related")
+def related_incidents(workspace_id: str, incident_id: str,
+                      user: User = Depends(current_user), db: Session = Depends(get_db)):
+    scoped(workspace_id, user, db)
+    incident = db.get(LiveIncident, incident_id)
+    if incident is None or incident.workspace_id != workspace_id:
+        raise HTTPException(404, "Incident not found")
+    return {"incident_id": incident_id, "related": correlate(db, incident),
+            "disclaimer": "Source overlap is a candidate relationship, not proof of common root cause."}
 
 
 @router.get("/sources/{kind}/{record_id}")

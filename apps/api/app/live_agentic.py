@@ -111,6 +111,7 @@ def agentic_investigate(db: Session, incident: LiveIncident) -> LiveInvestigatio
     trace: list[dict] = []
     hypotheses: list[str] = []
     questions: list[str] = []
+    collected_evidence: list[dict] = []
     plan_verified = False
     plan_msg = [
         {"role": "system", "content": (
@@ -141,10 +142,15 @@ def agentic_investigate(db: Session, incident: LiveIncident) -> LiveInvestigatio
         for step in plan.steps:
             try:
                 result, ids = read_tool(db, incident, step.tool, step.arguments)
+                serialized = json.dumps(result, default=str)
+                if len(serialized) > 8000:
+                    raise ValueError("Tool evidence exceeds permitted model context")
                 allowed_ids.update(ids)
+                collected_evidence.append({"read_tool": step.tool, "result_ids": ids,
+                                           "result": result})
                 trace.append({"tool": "agent_evidence", "status": "passed",
                               "read_tool": step.tool, "result_ids": ids,
-                              "result_size": len(json.dumps(result, default=str))})
+                              "result_size": len(serialized)})
             except (ValueError, KeyError, TypeError, ValidationError) as exc:
                 trace.append({"tool": "agent_evidence", "status": "unavailable",
                               "read_tool": step.tool, "error": type(exc).__name__})
@@ -155,7 +161,7 @@ def agentic_investigate(db: Session, incident: LiveIncident) -> LiveInvestigatio
 
     # The existing analyst can itself choose workspace-scoped function tools,
     # validate IDs and arithmetic, and refuse unsupported policy proposals.
-    record = investigate(db, incident)
+    record = investigate(db, incident, planner_evidence=collected_evidence)
     if record.mode != "ai_enabled" or not plan_verified:
         trace.append({"tool": "agent_critic", "status": "not_verified",
                       "reason": "analyst_or_plan_failed"})
@@ -178,6 +184,7 @@ def agentic_investigate(db: Session, incident: LiveIncident) -> LiveInvestigatio
             "business action was executed.")},
         {"role": "user", "content": json.dumps({
             "incident_kind": incident.kind, "evidence": facts,
+            "planner_evidence": collected_evidence,
             "planner_hypotheses": hypotheses, "open_questions": questions,
             "deterministic_check": record.finding.split(" AI interpretation for human review:", 1)[0],
             "analyst_interpretation": analyst_text,
@@ -188,7 +195,7 @@ def agentic_investigate(db: Session, incident: LiveIncident) -> LiveInvestigatio
         critique, meta = _json_response(critic_messages, AgentCritique)
         if not set(critique.evidence_ids).issubset(allowed_ids):
             raise ValueError("Critic cited evidence outside this workspace")
-        validate_explanation(critique.rationale, facts,
+        validate_explanation(critique.rationale, facts + collected_evidence,
                              record.finding.split(" AI interpretation for human review:", 1)[0])
         passed = critique.verdict == "supported"
         trace.append({"tool": "agent_critic", "status": "passed" if passed else "not_verified",

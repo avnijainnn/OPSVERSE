@@ -1,7 +1,7 @@
-"""Opt-in autonomous scanner: investigate new, source-backed incidents once.
+"""Durable autonomous and manually requested AI job executor.
 
-No provider writes and no approval decisions. Run only with a configured model and
-AGENT_AUTORUN_ENABLED=true. PostgreSQL row locks prevent simultaneous claims.
+The scheduler is opt-in per workspace. Manually enqueued jobs can run with the
+scheduler disabled. Provider writes remain disallowed.
 """
 from __future__ import annotations
 
@@ -10,70 +10,83 @@ import os
 import time
 
 from sqlalchemy import exists, select
+from sqlalchemy.exc import IntegrityError
 
-from .live_agentic import agentic_investigate
-from .live_models import AuditRecord, LiveIncident, LiveInvestigation, Workspace, engine, session_factory
-from .live_rate_limit import check_analysis_budget, check_agent_daily_budget
+from .agent_jobs import auto_key, enqueue, run_one_stage
+from .live_models import AgentJob, LiveIncident, LiveInvestigation, Workspace, session_factory
+from .live_rate_limit import check_agent_daily_budget
 
 log = logging.getLogger("opsverse.agent_worker")
 
 
 def permitted_workspaces() -> set[str]:
-    """Explicit opt-in. A global worker flag never authorizes every tenant."""
     return {value.strip() for value in os.getenv("AGENT_AUTO_WORKSPACE_IDS", "").split(",")
             if value.strip()}
 
 
 def enabled() -> bool:
+    """Used by the automatic scheduler; manual jobs are independent."""
     return (os.getenv("AGENT_AUTORUN_ENABLED", "false").lower() == "true"
             and bool(permitted_workspaces())
             and all(os.getenv(key) for key in ("LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY")))
 
 
-def run_sweep(limit: int = 3) -> int:
-    """Take bounded claims, persist trace, and never re-run already investigated IDs."""
+def enqueue_automatic(limit: int = 3) -> int:
     if not enabled():
         return 0
-    limit = max(1, min(limit, 10))
-    processed = 0
-    for _ in range(limit):
-        with session_factory()() as db:
-            prior = exists().where(LiveInvestigation.incident_id == LiveIncident.id)
-            query = (select(LiveIncident)
-                     .where(LiveIncident.status == "open",
-                            LiveIncident.workspace_id.in_(permitted_workspaces()), ~prior)
-                     .order_by(LiveIncident.created_at, LiveIncident.id)
-                     .limit(1))
-            if engine().dialect.name == "postgresql":
-                query = query.with_for_update(skip_locked=True)
-            incident = db.scalar(query)
-            if incident is None:
-                break
+    created = 0
+    with session_factory()() as db:
+        incidents = db.scalars(select(LiveIncident).where(
+            LiveIncident.workspace_id.in_(permitted_workspaces()),
+            LiveIncident.status == "open",
+        ).order_by(LiveIncident.created_at, LiveIncident.id).limit(200)).all()
+        for incident in incidents:
+            # Keep v1's one-time automatic behavior for already reviewed incidents.
+            if db.scalar(select(LiveInvestigation.id).where(
+                LiveInvestigation.incident_id == incident.id).limit(1)):
+                continue
+            key = auto_key(incident)
+            if db.scalar(select(AgentJob.id).where(
+                AgentJob.workspace_id == incident.workspace_id,
+                AgentJob.idempotency_key == key)):
+                continue
             workspace = db.get(Workspace, incident.workspace_id)
             if workspace is None:
-                log.warning("Ignoring incident with unavailable workspace")
-                break
+                continue
             try:
-                check_analysis_budget(workspace.owner_id, incident.workspace_id, "agentic_auto",
-                                      max_calls=6)
-                check_agent_daily_budget(incident.workspace_id)
-                result = agentic_investigate(db, incident)
-                db.add(AuditRecord(workspace_id=incident.workspace_id,
-                                   user_id=workspace.owner_id,
-                                   action="agentic_investigation_auto",
-                                   target_id=incident.id,
-                                   detail={"mode": result.mode,
-                                           "verified": any(x.get("tool") == "agent_critic" and
-                                                           x.get("status") == "passed"
-                                                           for x in result.tool_trace)}))
+                check_agent_daily_budget(workspace.id)
+                enqueue(db, incident, workspace.owner_id, key)
                 db.commit()
-                processed += 1
-                log.info("Investigated incident %s (mode=%s)", incident.id, result.mode)
+                created += 1
+            except IntegrityError:
+                db.rollback()
             except Exception:
                 db.rollback()
-                log.exception("Autonomous investigation failed; no source writes were made")
+                log.exception("Could not enqueue automatic agent investigation")
                 break
-    return processed
+            if created >= limit:
+                break
+    return created
+
+
+def run_sweep(limit: int = 3) -> int:
+    """Execute bounded checkpoint transitions; returns number of finished jobs."""
+    if not all(os.getenv(key) for key in ("LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY")):
+        return 0
+    limit = max(1, min(int(limit), 10))
+    enqueue_automatic(limit)
+    done = 0
+    # At most 8 phases per job including one replan; avoids endless worker loops.
+    for _ in range(limit * 8):
+        result = run_one_stage()
+        if result is None:
+            break
+        job_id, outcome = result
+        if outcome == "succeeded":
+            done += 1
+        if outcome == "retry":
+            log.warning("Agent phase failed for job %s; retry scheduled", job_id)
+    return done
 
 
 def main() -> None:
@@ -81,11 +94,12 @@ def main() -> None:
     poll = max(30, min(int(os.getenv("AGENT_AUTO_POLL_SECONDS", "60")), 3600))
     batch = max(1, min(int(os.getenv("AGENT_AUTO_BATCH", "3")), 10))
     while True:
-        if enabled():
-            try:
-                run_sweep(batch)
-            except Exception:
-                log.exception("Autonomous investigation sweep failed")
+        try:
+            completed = run_sweep(batch)
+            if completed:
+                log.info("Completed %d durable agent jobs", completed)
+        except Exception:
+            log.exception("Durable agent sweep failed")
         time.sleep(poll)
 
 

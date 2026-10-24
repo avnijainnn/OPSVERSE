@@ -68,6 +68,14 @@ def _plan(db: Session, incident: LiveIncident, state: dict, replan: bool = False
     plans = list(new.get("plans", []))
     plans.append(plan.model_dump())
     new["plans"] = plans
+    prior_branches = list(new.get("hypothesis_branches", []))
+    prior_branches.extend(
+        {"id": f"plan-{len(plans)}-hypothesis-{index + 1}", "hypothesis": hypothesis[:300],
+         "assessment": "unverified", "evidence_considered_ids": [],
+         "note": "Competing possibility, not verified root cause"}
+        for index, hypothesis in enumerate(plan.hypotheses)
+    )
+    new["hypothesis_branches"] = prior_branches[:6]
     new["active_plan"] = plan.model_dump()
     new["specialist"] = domain["name"]
     new["potentially_related_incidents"] = peers
@@ -80,7 +88,7 @@ def _plan(db: Session, incident: LiveIncident, state: dict, replan: bool = False
                   "candidate_related_incidents": [item["incident_id"] for item in peers], **meta})
     new["trace"] = trace
     new["phase"] = "evidence"
-    new["replan_done"] = bool(replan)
+    new["replan_done"] = bool(replan or meta.get("model_unavailable"))
     return new
 
 
@@ -116,7 +124,18 @@ def _evidence(db: Session, incident: LiveIncident, state: dict) -> dict:
     new.update({"read_results": results[:8], "visited": sorted(visited),
                 "failures": failures[:8], "trace": trace})
     new["evidence_gaps"] = gaps(failures, initial_missing=new.get("missing_source_evidence", False))
-    new["phase"] = ("replan" if (new["evidence_gaps"] or fresh_failures)
+    candidate_ids = {rid for item in results for rid in item.get("result_ids", [])}
+    if candidate_ids:
+        new["hypothesis_branches"] = [
+            {**branch, "evidence_considered_ids": sorted(candidate_ids)[:20]}
+            for branch in new.get("hypothesis_branches", [])
+        ]
+    insufficient_discrimination = (
+        len(new.get("active_plan", {}).get("hypotheses", [])) > 1
+        and len(results) < 2
+    )
+    new["phase"] = ("replan" if (new["evidence_gaps"] or fresh_failures
+                    or insufficient_discrimination)
                     and not new.get("replan_done") else "analyze")
     return new
 

@@ -614,6 +614,9 @@ def test_automatic_agent_worker_handles_open_incidents_once(client, monkeypatch)
         raise OSError("No external model used in fixture")
     monkeypatch.setattr("app.live_agentic._completion", offline)
     monkeypatch.setattr("app.live_ai._completion", offline)
+    monkeypatch.setenv("AGENT_AUTO_WORKSPACE_IDS", "")
+    assert run_sweep(limit=3) == 0  # No implicit all-tenant consent.
+    monkeypatch.setenv("AGENT_AUTO_WORKSPACE_IDS", workspace)
     assert run_sweep(limit=3) >= 1
     assert run_sweep(limit=3) == 0
     results = client.get(f"/live/workspaces/{workspace}/investigations").json()

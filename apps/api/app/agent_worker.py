@@ -18,10 +18,16 @@ from .live_rate_limit import check_analysis_budget, check_agent_daily_budget
 log = logging.getLogger("opsverse.agent_worker")
 
 
+def permitted_workspaces() -> set[str]:
+    """Explicit opt-in. A global worker flag never authorizes every tenant."""
+    return {value.strip() for value in os.getenv("AGENT_AUTO_WORKSPACE_IDS", "").split(",")
+            if value.strip()}
+
+
 def enabled() -> bool:
-    return os.getenv("AGENT_AUTORUN_ENABLED", "false").lower() == "true" and all(
-        os.getenv(key) for key in ("LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY")
-    )
+    return (os.getenv("AGENT_AUTORUN_ENABLED", "false").lower() == "true"
+            and bool(permitted_workspaces())
+            and all(os.getenv(key) for key in ("LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY")))
 
 
 def run_sweep(limit: int = 3) -> int:
@@ -34,7 +40,8 @@ def run_sweep(limit: int = 3) -> int:
         with session_factory()() as db:
             prior = exists().where(LiveInvestigation.incident_id == LiveIncident.id)
             query = (select(LiveIncident)
-                     .where(LiveIncident.status == "open", ~prior)
+                     .where(LiveIncident.status == "open",
+                            LiveIncident.workspace_id.in_(permitted_workspaces()), ~prior)
                      .order_by(LiveIncident.created_at, LiveIncident.id)
                      .limit(1))
             if engine().dialect.name == "postgresql":

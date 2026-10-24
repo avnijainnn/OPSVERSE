@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .live_ai import KINDS, SourceArgs, investigate, proposals_from_trace, source_record, structured_investigation
@@ -322,6 +323,13 @@ def queue_agent_job(workspace_id: str, data: AgentJobRequest,
         db.commit()
         db.refresh(job)
         return job_data(job)
+    except IntegrityError:
+        db.rollback()
+        duplicate = db.scalar(select(AgentJob).where(
+            AgentJob.workspace_id == workspace_id, AgentJob.idempotency_key == key))
+        if duplicate and duplicate.incident_id == incident.id:
+            return job_data(duplicate)
+        raise HTTPException(409, "Idempotency key collision")
     except ValueError as exc:
         db.rollback()
         raise HTTPException(400, str(exc)) from exc

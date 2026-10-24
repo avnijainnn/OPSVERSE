@@ -252,8 +252,10 @@ def agent_status(workspace_id: str, user: User = Depends(current_user),
                  db: Session = Depends(get_db)):
     scoped(workspace_id, user, db)
     enabled = all(os.getenv(key) for key in ("LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY"))
+    opted_in = workspace_id in {item.strip() for item in
+                               os.getenv("AGENT_AUTO_WORKSPACE_IDS", "").split(",")}
     return {"agentic_available": enabled,
-            "auto_worker_enabled": enabled and os.getenv("AGENT_AUTORUN_ENABLED", "false").lower() == "true",
+            "auto_worker_enabled": enabled and opted_in and os.getenv("AGENT_AUTORUN_ENABLED", "false").lower() == "true",
             "stages": ["plan", "read_workspace_evidence", "investigate", "critic", "human_review"],
             "read_only": True, "requires_human_approval": True,
             "mode": "llm_agent" if enabled else "deterministic_fallback"}

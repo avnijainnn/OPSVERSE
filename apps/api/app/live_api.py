@@ -14,6 +14,8 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from .live_ai import KINDS, SourceArgs, investigate, proposals_from_trace, source_record, structured_investigation
+from .live_agentic import agentic_investigate
+from .live_rate_limit import check_agent_daily_budget
 from .live_evidence import evidence_graph
 from .live_backtest import evaluate_order_backtest
 from .live_demand import VERSION as DEMAND_MODEL_VERSION, demand_model, modeled_schedule
@@ -242,6 +244,46 @@ def investigate_incident(workspace_id: str, incident_id: str, user: User = Depen
             "evidence": finding.evidence, "tool_trace": finding.tool_trace,
             "structured": structured_investigation(record, finding),
             "proposals": proposals_from_trace(finding.tool_trace)}
+
+
+
+@router.get("/agent/status")
+def agent_status(workspace_id: str, user: User = Depends(current_user),
+                 db: Session = Depends(get_db)):
+    scoped(workspace_id, user, db)
+    enabled = all(os.getenv(key) for key in ("LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY"))
+    opted_in = workspace_id in {item.strip() for item in
+                               os.getenv("AGENT_AUTO_WORKSPACE_IDS", "").split(",")}
+    return {"agentic_available": enabled,
+            "auto_worker_enabled": enabled and opted_in and os.getenv("AGENT_AUTORUN_ENABLED", "false").lower() == "true",
+            "stages": ["plan", "read_workspace_evidence", "investigate", "critic", "human_review"],
+            "read_only": True, "requires_human_approval": True,
+            "mode": "llm_agent" if enabled else "deterministic_fallback"}
+
+
+@router.post("/incidents/{incident_id}/investigate/agentic", dependencies=[Depends(same_origin)])
+def agentic_investigate_incident(workspace_id: str, incident_id: str,
+                                user: User = Depends(current_user),
+                                db: Session = Depends(get_db)):
+    require_workspace_role(workspace_id, user, db)
+    check_analysis_budget(user.id, workspace_id, "agentic", max_calls=6)
+    check_agent_daily_budget(workspace_id)
+    incident = db.get(LiveIncident, incident_id)
+    if incident is None or incident.workspace_id != workspace_id:
+        raise HTTPException(404, "Incident not found")
+    finding = agentic_investigate(db, incident)
+    db.add(AuditRecord(workspace_id=workspace_id, user_id=user.id,
+                       action="agentic_investigation_run", target_id=incident.id,
+                       detail={"mode": finding.mode, "verified":
+                               any(item.get("tool") == "agent_critic" and
+                                   item.get("status") == "passed" for item in finding.tool_trace)}))
+    db.commit()
+    return {"id": finding.id, "mode": finding.mode, "finding": finding.finding,
+            "evidence": finding.evidence, "tool_trace": finding.tool_trace,
+            "structured": structured_investigation(incident, finding),
+            "proposals": proposals_from_trace(finding.tool_trace),
+            "agentic_critic_passed": any(item.get("tool") == "agent_critic" and
+                                         item.get("status") == "passed" for item in finding.tool_trace)}
 
 
 @router.get("/sources/{kind}/{record_id}")

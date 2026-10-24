@@ -517,3 +517,110 @@ def test_workspace_viewer_cannot_mutate_live_records_or_provider_settings(client
         files={"file": ("products.csv", PRODUCTS.encode(), "text/csv")}).status_code == 200
     assert client.post(base + "/shopify/authorize",
         json={"shop": "example.myshopify.com"}).status_code == 403
+
+
+def test_agentic_plan_execute_critic_and_uncertainty_fallback(client, monkeypatch):
+    """Offline model stubs establish orchestration semantics, not real provider quality."""
+    workspace = register(client, "agent-owner@example.test", "Agent tests")
+    upload(client, workspace, "products", PRODUCTS)
+    upload(client, workspace, "inventory", INVENTORY)
+    base = f"/live/workspaces/{workspace}"
+    incident = next(item for item in client.get(base + "/incidents").json()
+                    if item["kind"] == "inventory_mismatch")
+    evidence_ids = [item["id"] for item in incident["evidence"]]
+    before = client.get(base + "/dashboard").json()["inventory"]
+    monkeypatch.setenv("LLM_BASE_URL", "https://model.example.invalid/v1")
+    monkeypatch.setenv("LLM_MODEL", "offline-model-test")
+    monkeypatch.setenv("LLM_API_KEY", "offline-test-key")
+    assert client.get(base + "/agent/status").json()["agentic_available"] is True
+
+    def plan_or_critic(messages):
+        system = messages[0]["content"]
+        if "OpsVerse Planner" in system:
+            body = {"hypotheses": ["Warehouse and ERP snapshots disagree"],
+                    "steps": [{"tool": "get_source_coverage", "arguments": {"object_kind": "inventory"}}],
+                    "open_questions": ["Which source reflects the actual stock?"]}
+        else:
+            body = {"verdict": "supported",
+                    "rationale": "The source inventories support the observation of differing sellable counts.",
+                    "evidence_ids": evidence_ids,
+                    "open_questions": ["Physical recount is still required."]}
+        return {"choices": [{"message": {"content": json.dumps(body)}}]}
+
+    monkeypatch.setattr("app.live_agentic._completion", plan_or_critic)
+    monkeypatch.setattr("app.live_ai._completion", lambda _: {"choices": [{"message": {"content": json.dumps({
+        "summary": "The observed BAG-1 sellable quantities disagree by 3 units between the inventory records.",
+        "evidence_ids": evidence_ids,
+        "proposed_option_ids": ["hold_disputed_units"]
+    })}}]})
+    run = client.post(base + f"/incidents/{incident['id']}/investigate/agentic")
+    assert run.status_code == 200, run.text
+    result = run.json()
+    assert result["mode"] == "ai_enabled"
+    assert result["agentic_critic_passed"] is True
+    assert {"agent_planner", "agent_evidence", "agent_critic", "model_validation"}.issubset(
+        {item["tool"] for item in result["tool_trace"]})
+    assert [item["id"] for item in result["proposals"]] == ["hold_disputed_units"]
+    assert client.get(base + "/dashboard").json()["inventory"] == before
+    assert any(item["action"] == "agentic_investigation_run" for item in
+               client.get(base + "/audit").json())
+
+    def uncertain_critic(messages):
+        if "OpsVerse Planner" in messages[0]["content"]:
+            return plan_or_critic(messages)
+        return {"choices": [{"message": {"content": json.dumps({
+            "verdict": "uncertain",
+            "rationale": "The physical stock has not been independently recounted.",
+            "evidence_ids": evidence_ids, "open_questions": []
+        })}}]}
+    monkeypatch.setattr("app.live_agentic._completion", uncertain_critic)
+    second = client.post(base + f"/incidents/{incident['id']}/investigate/agentic")
+    assert second.status_code == 200, second.text
+    outcome = second.json()
+    assert outcome["mode"] == "deterministic_fallback"
+    assert outcome["agentic_critic_passed"] is False
+    assert outcome["proposals"] == []
+    assert "AI interpretation for human review" not in outcome["finding"]
+    assert client.get(base + "/dashboard").json()["inventory"] == before
+
+
+def test_agentic_requires_workspace_write_role(client):
+    owner = register(client, "agent-role-owner@example.test", "Owner")
+    register(client, "agent-role-viewer@example.test", "Viewer")
+    with session_factory()() as db:
+        viewer = db.query(User).filter_by(email="agent-role-viewer@example.test").one()
+        db.add(Membership(workspace_id=owner, user_id=viewer.id, role="viewer"))
+        db.commit()
+    assert client.get(f"/live/workspaces/{owner}/agent/status").status_code == 200
+    assert client.post(
+        f"/live/workspaces/{owner}/incidents/non-existent/investigate/agentic"
+    ).status_code == 403
+
+
+def test_automatic_agent_worker_handles_open_incidents_once(client, monkeypatch):
+    """Worker processes bounded source-backed incidents without merchant writes."""
+    from app.agent_worker import run_sweep
+    workspace = register(client, "auto-worker@example.test", "Worker test")
+    upload(client, workspace, "products", PRODUCTS)
+    upload(client, workspace, "inventory", INVENTORY)
+    baseline = client.get(f"/live/workspaces/{workspace}/dashboard").json()["inventory"]
+    monkeypatch.setenv("AGENT_AUTORUN_ENABLED", "true")
+    monkeypatch.setenv("AGENT_AUTO_WORKSPACE_IDS", workspace)
+    monkeypatch.setenv("LLM_BASE_URL", "https://offline-agent.example.invalid/v1")
+    monkeypatch.setenv("LLM_MODEL", "offline-agent-test")
+    monkeypatch.setenv("LLM_API_KEY", "offline-agent-secret")
+
+    def offline(*_):
+        raise OSError("No external model used in fixture")
+    monkeypatch.setattr("app.live_agentic._completion", offline)
+    monkeypatch.setattr("app.live_ai._completion", offline)
+    monkeypatch.setenv("AGENT_AUTO_WORKSPACE_IDS", "")
+    assert run_sweep(limit=3) == 0  # No implicit all-tenant consent.
+    monkeypatch.setenv("AGENT_AUTO_WORKSPACE_IDS", workspace)
+    assert run_sweep(limit=3) >= 1
+    assert run_sweep(limit=3) == 0
+    results = client.get(f"/live/workspaces/{workspace}/investigations").json()
+    assert results and any(row["mode"] == "deterministic_fallback" for row in results)
+    assert client.get(f"/live/workspaces/{workspace}/dashboard").json()["inventory"] == baseline
+    assert any(row["action"] == "agentic_investigation_auto"
+               for row in client.get(f"/live/workspaces/{workspace}/audit").json())

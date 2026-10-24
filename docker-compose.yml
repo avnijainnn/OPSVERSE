@@ -26,6 +26,8 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
+      AGENT_AUTORUN_ENABLED: ${AGENT_AUTORUN_ENABLED:-false}
+      AGENT_AUTO_WORKSPACE_IDS: ${AGENT_AUTO_WORKSPACE_IDS:-}
       DEMO_MUTATIONS_PER_HOUR: ${DEMO_MUTATIONS_PER_HOUR:-60}
       DEMO_MAX_ROOT_RUNS: ${DEMO_MAX_ROOT_RUNS:-1000}
       PUBLIC_SHOWCASE: ${PUBLIC_SHOWCASE:-false}
@@ -58,6 +60,22 @@ services:
     depends_on:
       api:
         condition: service_started
+  agent:
+    build: ./apps/api
+    command: python -m app.agent_worker
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://opsverse:${POSTGRES_PASSWORD:-opsverse_local_only}@db:5432/opsverse
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      AGENT_AUTORUN_ENABLED: ${AGENT_AUTORUN_ENABLED:-false}
+      AGENT_AUTO_WORKSPACE_IDS: ${AGENT_AUTO_WORKSPACE_IDS:-}
+      AGENT_AUTO_POLL_SECONDS: ${AGENT_AUTO_POLL_SECONDS:-60}
+      AGENT_AUTO_BATCH: ${AGENT_AUTO_BATCH:-3}
+    depends_on:
+      db:
+        condition: service_healthy
   web:
     build:
       context: .

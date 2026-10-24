@@ -28,6 +28,10 @@ services:
       DATABASE_URL: postgresql+psycopg://opsverse:${POSTGRES_PASSWORD:?Set a random URL-safe PostgreSQL password}@db:5432/opsverse
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Set and back up a Fernet key}
       SHOPIFY_REDIRECT_URI: ${NEXT_PUBLIC_API_URL:?Set the HTTPS API origin}/live/shopify/callback
+  agent:
+    environment:
+      DATABASE_URL: postgresql+psycopg://opsverse:${POSTGRES_PASSWORD:?Set a random URL-safe PostgreSQL password}@db:5432/opsverse
+    restart: unless-stopped
   web:
     build:
       args:

@@ -88,3 +88,12 @@ def check_auth_budget(email: str, client_id: str, action: str) -> None:
            "Too many authentication attempts")
     _allow(("auth", action, "account", email.lower()), account_limit, 3600,
            "Too many authentication attempts")
+
+
+def check_agent_daily_budget(workspace_id: str) -> None:
+    """Cap cumulative autonomous and manual agent investigations per workspace."""
+    limit = int(os.getenv("AGENT_DAILY_RUNS_PER_WORKSPACE", "20"))
+    if not 1 <= limit <= 1000:
+        raise HTTPException(503, "Agent daily budget is misconfigured")
+    _allow(("agent_daily", workspace_id), limit, 86400,
+           "Workspace AI investigation budget reached for the day")

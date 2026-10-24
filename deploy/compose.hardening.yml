@@ -14,6 +14,13 @@ services:
       timeout: 3s
       retries: 5
     mem_limit: 128m
+  agent:
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      AUTH_REQUIRE_DURABLE_LIMITS: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
   api:
     environment:
       REDIS_URL: redis://redis:6379/0

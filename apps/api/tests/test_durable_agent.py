@@ -187,3 +187,66 @@ def test_related_incidents_do_not_cross_workspaces(client):
     assert found.status_code == 200
     assert [item["incident_id"] for item in found.json()["related"]] == [linked_id]
     assert "not proof" in found.json()["disclaimer"]
+
+
+def test_expired_lease_is_fenced_and_cancelled_job_can_resume(client):
+    """Stale owners must not commit, even if the model request completed."""
+    from app.agent_jobs import _claim, _finish, _fail, _reserve, enqueue, resume, request_cancel
+    from app.live_models import Workspace
+
+    account = client.post("/live/register", json={
+        "email": "lease-owner@example.test",
+        "password": "a-long-unique-test-password",
+        "workspace_name": "Leases",
+    })
+    assert account.status_code == 200, account.text
+    workspace_id = account.json()["workspaces"][0]["id"]
+    with session_factory()() as db:
+        workspace = db.get(Workspace, workspace_id)
+        incident = LiveIncident(workspace_id=workspace_id, kind="inventory_mismatch",
+                                classification="suspected", status="open",
+                                fingerprint="test-fence", summary="Lease fencing test",
+                                evidence=[])
+        db.add(incident)
+        db.flush()
+        job = enqueue(db, incident, workspace.owner_id, "stale-first")
+        db.commit()
+        job_id = job.id
+    original = _claim("one")
+    assert original and original[0] == job_id
+    old_token = original[1]
+    with session_factory()() as db:
+        job = db.get(AgentJob, job_id)
+        job.lease_until = utc() - timedelta(seconds=10)
+        db.commit()
+    reclaimed = _claim("two")
+    assert reclaimed and reclaimed[0] == job_id and reclaimed[1] != old_token
+    assert _finish(job_id, old_token, "plan", {"phase": "evidence"}) is False
+    with session_factory()() as db:
+        job = db.get(AgentJob, job_id)
+        request_cancel(db, job)
+        db.commit()
+    assert _finish(job_id, reclaimed[1], "plan", {"phase": "evidence"}) is True
+    with session_factory()() as db:
+        job = db.get(AgentJob, job_id)
+        assert job.status == "cancelled" and job.investigation_id is None
+        resume(db, job)
+        db.commit()
+    third = _claim("three")
+    assert third and third[0] == job_id
+    assert _reserve(job_id, third[1], "plan") is True
+    _fail(job_id, third[1], RuntimeError("model offline"))
+    with session_factory()() as db:
+        job = db.get(AgentJob, job_id)
+        assert job.status == "queued" and job.attempt == 1
+        assert job.next_attempt_at is not None
+        job.next_attempt_at = utc() - timedelta(seconds=1)
+        db.commit()
+    retry = _claim("four")
+    assert retry and retry[0] == job_id
+    assert _reserve(job_id, retry[1], "plan") is True
+    assert _finish(job_id, retry[1], "plan", {"phase": "evidence"}) is True
+    with session_factory()() as db:
+        job = db.get(AgentJob, job_id)
+        assert job.status == "queued" and job.phase == "evidence" and job.attempt == 0
+        assert job.reserved_model_calls == 2  # No refund of already reserved calls.

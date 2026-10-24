@@ -55,7 +55,9 @@ def serialize(job: AgentJob) -> dict:
             "progress": {"completed_plans": len((job.checkpoint or {}).get("plans", [])),
                          "evidence_reads": len((job.checkpoint or {}).get("visited", [])),
                          "specialist": (job.checkpoint or {}).get("specialist"),
-                         "evidence_gaps": (job.checkpoint or {}).get("evidence_gaps", [])},
+                         "evidence_gaps": (job.checkpoint or {}).get("evidence_gaps", []),
+                         "hypothesis_branches": (job.checkpoint or {}).get("hypothesis_branches", []),
+                         "related_incidents": (job.checkpoint or {}).get("potentially_related_incidents", [])},
             "cost_note": "Cost is a reserved estimate per possible model call, not billed provider usage."}
 
 
@@ -216,7 +218,9 @@ def _finish(job_id: str, token: str, phase: str, checkpoint: dict) -> bool:
             job.checkpoint = {"completed": True, "specialist": checkpoint.get("specialist"),
                               "critic": critic, "plans": checkpoint.get("plans", []),
                               "evidence_gaps": checkpoint.get("evidence_gaps", []),
-                              "visited": checkpoint.get("visited", [])}
+                              "visited": checkpoint.get("visited", []),
+                              "hypothesis_branches": checkpoint.get("hypothesis_branches", []),
+                              "potentially_related_incidents": checkpoint.get("potentially_related_incidents", [])}
         else:
             job.phase = checkpoint.get("phase", phase)
             job.checkpoint = checkpoint

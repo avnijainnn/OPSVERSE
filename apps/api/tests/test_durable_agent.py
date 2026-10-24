@@ -6,11 +6,35 @@ from __future__ import annotations
 
 import json
 from datetime import timedelta
+from pathlib import Path
 from uuid import uuid4
+
+import pytest
+from alembic import command
+from alembic.config import Config
+from fastapi.testclient import TestClient
+
+from app import store
+from app.main import app
 
 from app.agent_jobs import run_one_stage, utc
 from app.agent_worker import run_sweep
 from app.live_models import AgentJob, LiveIncident, session_factory
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///" + (tmp_path / "jobs.db").as_posix())
+    monkeypatch.setenv("SESSION_SECRET", "test-secret-value-with-more-than-32-characters")
+    monkeypatch.setenv("REGISTRATION_ENABLED", "true")
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("AUTH_REQUIRE_DURABLE_LIMITS", raising=False)
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "demo.db")
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    config.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "migrations"))
+    command.upgrade(config, "head")
+    with TestClient(app, headers={"Origin": "http://localhost:3000"}) as browser:
+        yield browser
 
 
 def _incident(client, register, upload, products, inventory, name):

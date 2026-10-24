@@ -56,7 +56,14 @@ def _plan(db: Session, incident: LiveIncident, state: dict, replan: bool = False
         "visited_reads": visited,
         "replan": replan,
     }
-    plan, meta = _json_response(_message(prompt, context), AgentPlan)
+    try:
+        plan, meta = _json_response(_message(prompt, context), AgentPlan)
+    except (OSError, TimeoutError):
+        # Model outage is not evidence that the incident is resolved.
+        # Continue with rule-based analyst and mark the planner unverified.
+        plan = AgentPlan(hypotheses=["The available evidence still needs human verification"],
+                         steps=[], open_questions=["Agent planning service was unavailable"])
+        meta = {"model_unavailable": True}
     new = dict(state)
     plans = list(new.get("plans", []))
     plans.append(plan.model_dump())
@@ -67,7 +74,8 @@ def _plan(db: Session, incident: LiveIncident, state: dict, replan: bool = False
     new["missing_source_evidence"] = source_missing
     trace = list(new.get("trace", []))
     trace.append({"tool": "agent_replanner" if replan else "agent_planner",
-                  "status": "passed", "specialist": domain["name"],
+                  "status": "unverified" if meta.get("model_unavailable") else "passed",
+                  "specialist": domain["name"],
                   "hypotheses": plan.hypotheses, "open_questions": plan.open_questions,
                   "candidate_related_incidents": [item["incident_id"] for item in peers], **meta})
     new["trace"] = trace

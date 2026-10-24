@@ -17,6 +17,8 @@ LLM_BASE_URL=https://YOUR_OPENAI_COMPATIBLE_PROVIDER/v1
 LLM_MODEL=YOUR_VERIFIED_TOOL_CAPABLE_MODEL
 LLM_API_KEY=YOUR_SECRET_KEY
 AGENT_AUTORUN_ENABLED=false
+AGENT_AUTO_WORKSPACE_IDS=              # Comma-separated workspace UUIDs; explicit opt-in
+AGENT_DAILY_RUNS_PER_WORKSPACE=20
 ```
 
 Example local Windows PowerShell commands:
@@ -35,14 +37,14 @@ Open a real, source-backed incident and select **Run AI agent workflow**. Inspec
 
 ## Optional autonomous worker
 
-With a trusted model configured, set `AGENT_AUTORUN_ENABLED=true` and then:
+With a trusted model configured, set `AGENT_AUTORUN_ENABLED=true` **and** `AGENT_AUTO_WORKSPACE_IDS=YOUR_AUTHORIZED_WORKSPACE_UUID` (comma-separated for multiple explicitly consenting workspaces), and then:
 
 ```powershell
 docker compose up -d --build agent
 docker compose logs -f agent
 ```
 
-It polls for new **open** incidents that have no prior `LiveInvestigation`, prioritizing old entries and bounded to three per sweep by default. A separate Compose `agent` service avoids moving model credentials to the browser. The default is **off**; enabling it incurs provider inference cost. It records an audit event under the workspace owner. PostgreSQL `FOR UPDATE SKIP LOCKED` serializes claims across worker replicas. Do not run multiple SQLite-backed workers.
+It polls for new **open** incidents in explicitly opted-in workspaces that have no prior `LiveInvestigation`, prioritizing old entries and bounded to three per sweep by default. If the allowed-workspace list is empty, the worker does nothing even if the global flag is set. A shared daily per-workspace budget defaults to 20 agent runs. A separate Compose `agent` service avoids moving model credentials to the browser. The default is **off**; enabling it incurs provider inference cost. It records an audit event under the workspace owner. PostgreSQL `FOR UPDATE SKIP LOCKED` serializes claims across worker replicas. Do not run multiple SQLite-backed workers.
 
 For a hardened HTTPS pilot, add `-f deploy/compose.live.yml -f deploy/compose.hardening.yml` to Compose invocations and include `agent` in the services; configure Redis, deployment secrets, DNS, TLS, backups, and a monitored runbook before using merchant information. Test against synthetic workspaces and authenticated sources first.
 

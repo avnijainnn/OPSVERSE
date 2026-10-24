@@ -99,6 +99,7 @@ def _evidence(db: Session, incident: LiveIncident, state: dict) -> dict:
     trace = list(new.get("trace", []))
     failures = list(new.get("failures", []))
     fresh_failures = 0
+    allowed_tools = set(specialist(incident)["preferred_tools"]) | {"get_source_record", "get_incident"}
     for item in new["active_plan"].get("steps", [])[:4]:
         tool = item["tool"]
         args = item.get("arguments", {})
@@ -106,6 +107,13 @@ def _evidence(db: Session, incident: LiveIncident, state: dict) -> dict:
         if key in visited:
             continue
         visited.add(key)
+        if tool not in allowed_tools:
+            entry = {"read_tool": tool, "status": "blocked",
+                     "error": "NotAllowedForSpecialist"}
+            failures.append(entry)
+            trace.append({"tool": "agent_evidence", **entry})
+            fresh_failures += 1
+            continue
         try:
             output, ids = read_tool(db, incident, tool, args)
             encoded = json.dumps(output, default=str)

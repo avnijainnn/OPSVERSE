@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from .live_ai import KINDS, SourceArgs, investigate, proposals_from_trace, source_record, structured_investigation
 from .live_agentic import agentic_investigate
+from .live_rate_limit import check_agent_daily_budget
 from .live_evidence import evidence_graph
 from .live_backtest import evaluate_order_backtest
 from .live_demand import VERSION as DEMAND_MODEL_VERSION, demand_model, modeled_schedule
@@ -264,6 +265,7 @@ def agentic_investigate_incident(workspace_id: str, incident_id: str,
                                 db: Session = Depends(get_db)):
     require_workspace_role(workspace_id, user, db)
     check_analysis_budget(user.id, workspace_id, "agentic", max_calls=6)
+    check_agent_daily_budget(workspace_id)
     incident = db.get(LiveIncident, incident_id)
     if incident is None or incident.workspace_id != workspace_id:
         raise HTTPException(404, "Incident not found")

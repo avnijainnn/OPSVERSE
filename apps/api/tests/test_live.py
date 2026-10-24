@@ -605,6 +605,7 @@ def test_automatic_agent_worker_handles_open_incidents_once(client, monkeypatch)
     upload(client, workspace, "inventory", INVENTORY)
     baseline = client.get(f"/live/workspaces/{workspace}/dashboard").json()["inventory"]
     monkeypatch.setenv("AGENT_AUTORUN_ENABLED", "true")
+    monkeypatch.setenv("AGENT_AUTO_WORKSPACE_IDS", workspace)
     monkeypatch.setenv("LLM_BASE_URL", "https://offline-agent.example.invalid/v1")
     monkeypatch.setenv("LLM_MODEL", "offline-agent-test")
     monkeypatch.setenv("LLM_API_KEY", "offline-agent-secret")

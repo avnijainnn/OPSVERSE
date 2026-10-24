@@ -13,7 +13,7 @@ from sqlalchemy import exists, select
 
 from .live_agentic import agentic_investigate
 from .live_models import AuditRecord, LiveIncident, LiveInvestigation, Workspace, engine, session_factory
-from .live_rate_limit import check_analysis_budget
+from .live_rate_limit import check_analysis_budget, check_agent_daily_budget
 
 log = logging.getLogger("opsverse.agent_worker")
 
@@ -49,6 +49,7 @@ def run_sweep(limit: int = 3) -> int:
             try:
                 check_analysis_budget(workspace.owner_id, incident.workspace_id, "agentic_auto",
                                       max_calls=6)
+                check_agent_daily_budget(incident.workspace_id)
                 result = agentic_investigate(db, incident)
                 db.add(AuditRecord(workspace_id=incident.workspace_id,
                                    user_id=workspace.owner_id,

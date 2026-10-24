@@ -355,6 +355,8 @@ def investigate(db: Session, incident: LiveIncident, *, planner_evidence: list[d
     trace: list[dict] = []
     source_facts = []
     planner_evidence = (planner_evidence or [])[:4]
+    for documented_read in planner_evidence:
+        allowed_ids.update(documented_read.get("result_ids", []))
     unavailable = []
     for reference in incident.evidence:
         try:

@@ -595,3 +595,28 @@ def test_agentic_requires_workspace_write_role(client):
     assert client.post(
         f"/live/workspaces/{owner}/incidents/non-existent/investigate/agentic"
     ).status_code == 403
+
+
+def test_automatic_agent_worker_handles_open_incidents_once(client, monkeypatch):
+    """Worker processes bounded source-backed incidents without merchant writes."""
+    from app.agent_worker import run_sweep
+    workspace = register(client, "auto-worker@example.test", "Worker test")
+    upload(client, workspace, "products", PRODUCTS)
+    upload(client, workspace, "inventory", INVENTORY)
+    baseline = client.get(f"/live/workspaces/{workspace}/dashboard").json()["inventory"]
+    monkeypatch.setenv("AGENT_AUTORUN_ENABLED", "true")
+    monkeypatch.setenv("LLM_BASE_URL", "https://offline-agent.example.invalid/v1")
+    monkeypatch.setenv("LLM_MODEL", "offline-agent-test")
+    monkeypatch.setenv("LLM_API_KEY", "offline-agent-secret")
+
+    def offline(*_):
+        raise OSError("No external model used in fixture")
+    monkeypatch.setattr("app.live_agentic._completion", offline)
+    monkeypatch.setattr("app.live_ai._completion", offline)
+    assert run_sweep(limit=3) >= 1
+    assert run_sweep(limit=3) == 0
+    results = client.get(f"/live/workspaces/{workspace}/investigations").json()
+    assert results and any(row["mode"] == "deterministic_fallback" for row in results)
+    assert client.get(f"/live/workspaces/{workspace}/dashboard").json()["inventory"] == baseline
+    assert any(row["action"] == "agentic_investigation_auto"
+               for row in client.get(f"/live/workspaces/{workspace}/audit").json())

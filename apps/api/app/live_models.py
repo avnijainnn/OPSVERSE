@@ -182,6 +182,38 @@ class LiveInvestigation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class AgentJob(Base):
+    """Durable, workspace-scoped agent execution. Checkpoint is JSON and never holds secrets."""
+    __tablename__ = "agent_jobs"
+    __table_args__ = (UniqueConstraint("workspace_id", "idempotency_key"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    incident_id: Mapped[str] = mapped_column(ForeignKey("live_incidents.id"), index=True)
+    requested_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(24), default="queued", index=True)
+    phase: Mapped[str] = mapped_column(String(24), default="plan")
+    checkpoint: Mapped[dict] = mapped_column(JSON, default=dict)
+    attempt: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    locked_by: Mapped[str | None] = mapped_column(String(36))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    max_model_calls: Mapped[int] = mapped_column(Integer, default=7)
+    reserved_model_calls: Mapped[int] = mapped_column(Integer, default=0)
+    max_cost_microusd: Mapped[int] = mapped_column(Integer, default=200000)
+    estimated_cost_microusd: Mapped[int] = mapped_column(Integer, default=0)
+    reserved_cost_microusd: Mapped[int] = mapped_column(Integer, default=0)
+    investigation_id: Mapped[str | None] = mapped_column(ForeignKey("live_investigations.id"))
+    last_error: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+
+
 class LiveSnapshot(Base):
     __tablename__ = "live_snapshots"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)

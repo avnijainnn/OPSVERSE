@@ -349,7 +349,8 @@ def validate_explanation(summary: str, source_facts: list[dict], check: str) -> 
         raise ValueError("Model introduced an unsupported figure")
 
 
-def investigate(db: Session, incident: LiveIncident, *, planner_evidence: list[dict] | None = None) -> LiveInvestigation:
+def investigate(db: Session, incident: LiveIncident, *, planner_evidence: list[dict] | None = None,
+                persist: bool = True) -> LiveInvestigation:
     workspace_id = incident.workspace_id
     allowed_ids = {item["id"] for item in incident.evidence}
     trace: list[dict] = []
@@ -433,6 +434,7 @@ def investigate(db: Session, incident: LiveIncident, *, planner_evidence: list[d
     trace.append({"tool": "policy_check", "status": "blocked_missing_evidence" if unavailable else "passed", "proposals": proposals})
     record = LiveInvestigation(workspace_id=workspace_id, incident_id=incident.id, mode=mode,
                                finding=finding, evidence=incident.evidence, tool_trace=trace)
-    db.add(record)
-    db.commit()
+    if persist:
+        db.add(record)
+        db.commit()
     return record

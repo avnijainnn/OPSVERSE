@@ -207,7 +207,8 @@ def _finish(job_id: str, token: str, phase: str, checkpoint: dict) -> bool:
             workspace = db.get(Workspace, job.workspace_id)
             if workspace is not None:
                 db.add(AuditRecord(workspace_id=job.workspace_id, user_id=job.requested_by_id,
-                                   action="agentic_job_completed", target_id=job.id,
+                                   action=("agentic_investigation_auto" if job.idempotency_key.startswith("auto:")
+                                           else "agentic_job_completed"), target_id=job.id,
                                    detail={"investigation_id": record.id, "mode": record.mode,
                                            "critic_verified": critic.get("status") == "passed"}))
             job.status = "succeeded"

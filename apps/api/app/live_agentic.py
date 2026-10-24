@@ -78,7 +78,9 @@ def _base_evidence(db: Session, incident: LiveIncident) -> tuple[list[dict], set
 def _append_trace(db: Session, record: LiveInvestigation, extras: list[dict],
                   *, demote: bool = False) -> LiveInvestigation:
     original = list(record.tool_trace)
-    record.tool_trace = extras + original
+    planning = [item for item in extras if item.get("tool") != "agent_critic"]
+    critiques = [item for item in extras if item.get("tool") == "agent_critic"]
+    record.tool_trace = planning + original + critiques
     if demote and record.mode == "ai_enabled":
         record.finding = record.finding.split(" AI interpretation for human review:", 1)[0]
         record.mode = "deterministic_fallback"
@@ -186,7 +188,7 @@ def agentic_investigate(db: Session, incident: LiveIncident) -> LiveInvestigatio
         critique, meta = _json_response(critic_messages, AgentCritique)
         if not set(critique.evidence_ids).issubset(allowed_ids):
             raise ValueError("Critic cited evidence outside this workspace")
-        validate_explanation(critique.rationale, facts, critic_messages[1]["content"][:0] +
+        validate_explanation(critique.rationale, facts,
                              record.finding.split(" AI interpretation for human review:", 1)[0])
         passed = critique.verdict == "supported"
         trace.append({"tool": "agent_critic", "status": "passed" if passed else "not_verified",

@@ -147,7 +147,8 @@ def _reserve(job_id: str, token: str, phase: str) -> bool:
         if engine().dialect.name == "postgresql":
             query = query.with_for_update()
         job = db.scalar(query)
-        if job is None or job.locked_by != token or job.status != "running":
+        if (job is None or job.locked_by != token or job.status != "running"
+                or job.lease_until is None or utc(job.lease_until) <= utc()):
             return False
         if job.cancel_requested or utc(job.deadline_at) <= utc():
             job.status = "cancelled" if job.cancel_requested else "failed"
@@ -179,7 +180,8 @@ def _finish(job_id: str, token: str, phase: str, checkpoint: dict) -> bool:
         if engine().dialect.name == "postgresql":
             query = query.with_for_update()
         job = db.scalar(query)
-        if job is None or job.locked_by != token or job.status != "running":
+        if (job is None or job.locked_by != token or job.status != "running"
+                or job.lease_until is None or utc(job.lease_until) <= utc()):
             return False
         if job.cancel_requested or utc(job.deadline_at) <= utc():
             job.status = "cancelled" if job.cancel_requested else "failed"
@@ -233,7 +235,8 @@ def _fail(job_id: str, token: str, error: Exception) -> None:
         if engine().dialect.name == "postgresql":
             query = query.with_for_update()
         job = db.scalar(query)
-        if job is None or job.locked_by != token or job.status != "running":
+        if (job is None or job.locked_by != token or job.status != "running"
+                or job.lease_until is None or utc(job.lease_until) <= utc()):
             return
         job.attempt += 1
         job.last_error = type(error).__name__  # Never persist model prompts, secrets, or PII.

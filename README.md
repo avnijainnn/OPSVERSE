@@ -1,110 +1,301 @@
+<div align="center">
+
 # OpsVerse
 
-OpsVerse now has two explicit experiences:
+### Understand what happened. Explore what happens next.
 
-- **Live Operations** at `/live` is an authenticated, workspace-scoped view of observed business records. It starts empty. CSV imports and authorized provider reads persist in PostgreSQL; metrics and incidents derive from those records.
-- **Demo Mode** at `/demo` is the original deterministic, synthetic commerce simulator. It keeps its own event ledger and cannot write to live source tables.
+**An evidence-backed operations command center for commerce businesses.**  
+Connect observed records, investigate inventory and payment discrepancies, compare possible responses, and review a reproducible decision — **without making changes to merchant systems**.
 
-**Understand what happened. Explore what happens next.** The V2 live journey is Command Center → Incident Microscope → Decision Lab. Incident evidence links to saved observation versions; three isolated branches support bounded assumptions, seed-based sensitivity, event differences, order-volume backtesting when history allows, review, sandbox replay and a printable Decision Receipt. The isolated synthetic demo also has three saved branches, a delay sweep, a guided tour, receipt and replay. See the [V2 audit](docs/IMPLEMENTATION_GAP_AUDIT.md) and [reproducibility guide](docs/V2_REPRODUCIBILITY.md).
+**Next.js 15 · React 19 · TypeScript · FastAPI · PostgreSQL · SQLAlchemy · Docker · Playwright**
 
-Live incident investigations use workspace-scoped read tools. With `LLM_BASE_URL`, `LLM_MODEL` and `LLM_API_KEY` configured, the server can request a model finding; otherwise it returns a deterministic finding. Source references and proposed recovery option IDs are checked before display. Every proposal remains pending human review and performs no external operation.
+[Explore the product](#product-tour) · [Run locally](#quick-start) · [Architecture](#architecture) · [Validation & limitations](#validation-and-limitations) · [Documentation](#documentation)
 
-The [real-world completion audit](docs/REAL_WORLD_COMPLETION_GAPS.md) records implementation status and verification limits.
-The [cofounder walkthrough](docs/COFOUNDER_DEMO.md) and [validation matrix](docs/VALIDATION_AND_LIMITATIONS.md) show the actual demo path and what remains unverified.
+</div>
 
-The [Three-Futures repair audit](docs/REPAIR_AND_SHOWCASE_AUDIT.md), [synthetic showcase deployment guide](docs/DEPLOYMENT_SHOWCASE.md), [Live deployment readiness guide](docs/LIVE_DEPLOYMENT_READINESS.md), and [optional model setup](docs/LLM_SETUP.md) describe the current event-clock simulation, replay and verification boundary.
+<p align="center">
+  <img src="docs/screenshots/demo-live-twin-desktop.png" alt="OpsVerse synthetic Demo Mode showing the event-grounded business network" width="100%" />
+</p>
+<p align="center"><sub>Event-grounded business network in <strong>synthetic Demo Mode</strong>. Real browser capture from the repository.</sub></p>
 
-![Event-grounded synthetic Live Twin](docs/screenshots/demo-live-twin-desktop.png)
+> [!IMPORTANT]
+> **Two isolated experiences.** **Live Operations** (`/live`) works with authenticated, workspace-scoped imported or authorized provider records in PostgreSQL. **Demo Mode** (`/demo`) uses a separate, deterministic SQLite event ledger and needs no merchant credentials. Investigations and scenarios are advisory; approvals and replays are **sandbox-only**, with no external inventory, payment, or refund writes.
 
-![Source-backed live inventory investigation](docs/screenshots/v2-incident-microscope.png)
+## Why OpsVerse?
 
-![Three-branch scenario from imported inventory](docs/screenshots/v2-decision-lab.png)
+Commerce operations rarely fail in one system. An order can be marked fulfilled while inventory disagrees, a return can affect sellable stock, or a payment can reconcile differently once fees, refunds, settlement timing, and a bank credit are considered.
 
-## Run locally with PostgreSQL
+OpsVerse is built around a practical sequence:
+
+**Observe the business → identify the discrepancy → inspect its evidence → explore three futures → review a decision → verify its sandbox replay.**
+
+Instead of treating an AI-generated explanation as ground truth, OpsVerse keeps the relevant source IDs, ingestion-time observation versions, assumptions, branch events, and human review status available for inspection.
+
+## Product tour
+
+### 01 — Command Center: observe the business
+
+The authenticated experience starts with actual ingested workspace records, not prefilled demo metrics. Navigate the operational network, inspect records, and find source-backed incidents across inventory, fulfillment, returns, and financial reconciliation.
+
+<p align="center"><img src="docs/opsverse-live-operations.png" alt="Live Operations command center based on imported workspace records" width="100%" /></p>
+
+### 02 — Incident Microscope: follow the evidence
+
+Open a discrepancy to see the linked source records, saved observation versions, evidence graph, and investigator findings. The model-assisted investigator, when configured, is constrained to workspace-scoped read tools and validated references. Otherwise, findings are explicitly labeled as deterministic fallback.
+
+<p align="center"><img src="docs/screenshots/v2-incident-microscope.png" alt="Incident Microscope with source-linked evidence and observation timeline" width="100%" /></p>
+
+### 03 — Decision Lab: compare three possible futures
+
+Freeze an observed snapshot at an ingestion cutoff, adjust bounded assumptions, and compare three isolated inventory strategies. Explore matched event differences and seed-based sensitivity; use historical order-volume backtesting only where sufficient prior ingestion windows exist. Forecasted outcomes are hypothetical, not promises of future business performance.
+
+<p align="center"><img src="docs/screenshots/v2-decision-lab.png" alt="Decision Lab comparing three isolated inventory-policy branches" width="100%" /></p>
+
+### 04 — Decision Receipt: make decisions reviewable
+
+Select a preferred plan for human review, verify a saved sandbox replay, and open a printable receipt with source evidence, assumptions, branch results, reproducibility information, and review status. **Review does not trigger a real provider action.**
+
+<p align="center"><img src="docs/screenshots/v2-decision-receipt.png" alt="Printable Decision Receipt containing evidence, comparison, review, and reproducibility details" width="100%" /></p>
+
+### More of the workspace
+
+<table>
+  <tr>
+    <td width="50%" align="center"><strong>Money Trail</strong><br /><img src="docs/screenshots/money-trail-desktop.png" alt="Payment-to-bank Money Trail reconciliation" width="100%" /></td>
+    <td width="50%" align="center"><strong>Record History</strong><br /><img src="docs/screenshots/record-history-desktop.png" alt="Ingested observation and audit history" width="100%" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Source Integrations</strong><br /><img src="docs/screenshots/integrations-desktop.png" alt="Shopify and Razorpay integration settings" width="100%" /></td>
+    <td align="center"><strong>Three-Futures Replay</strong><br /><img src="docs/screenshots/three-futures-replay-desktop.png" alt="Replay of three saved hypothetical branches" width="100%" /></td>
+  </tr>
+</table>
+
+### The isolated synthetic demo
+
+Launch **`/demo`** to explore an event-driven commerce simulation with **40 SKUs**, initial orders, suppliers, matched payouts, and costs. Inject a damaged return, settlement false alarm, supplier delay, or missing payout; compare independent branches, run a manual-review delay sweep, approve a *sandbox* action, print a receipt, and replay the append-only ledger. The guided tour runs the sequence with a reproducible seed.
+
+<table>
+  <tr>
+    <td width="50%" align="center"><strong>Simulated incidents</strong><br /><img src="docs/screenshots/demo-incidents-desktop.png" alt="Synthetic demo incident queue" width="100%" /></td>
+    <td width="50%" align="center"><strong>Scenario comparison</strong><br /><img src="docs/screenshots/demo-scenario-lab-desktop.png" alt="Isolated deterministic synthetic scenario branches" width="100%" /></td>
+  </tr>
+</table>
+
+<details>
+<summary><strong>Mobile views and the full screenshot gallery</strong></summary>
+
+<p align="center">
+  <img src="docs/screenshots/live-twin-mobile.png" alt="Live Operations network on a mobile viewport" width="29%" />
+  <img src="docs/screenshots/scenario-lab-mobile.png" alt="Scenario Lab on a mobile viewport" width="29%" />
+  <img src="docs/screenshots/demo-replay-mobile.png" alt="Synthetic event replay on a mobile viewport" width="29%" />
+</p>
+
+All desktop and mobile captures, including benchmarks, traces, Settings, and the demo: **[Screenshot index](docs/screenshots/README.md)**. Images are generated from real browser interactions against the local app, not evidence of a public deployment.
+
+</details>
+
+## Capabilities at a glance
+
+| Area | What is implemented |
+| --- | --- |
+| **Live ingestion** | Atomic CSV import with mapping, preview, validation, source hashes and import history; read-only Shopify and Razorpay adapters |
+| **Operational detection** | Inventory conflicts, damaged-return stock questions, fulfillment failures, excessive refunds, payout variances, missing bank credits and related source discrepancies |
+| **Evidence & investigation** | Workspace-scoped source references, append-only observations, incident graph, bounded read tools, validated optional model findings and deterministic fallback |
+| **Financial reconciliation** | Payment capture → fees/tax → refunds → settlement → bank credit, with integer-paise arithmetic and explicit unexplained differences |
+| **Counterfactual analysis** | Versioned snapshots, three deterministic isolated branches, event-level differences, sensitivity runs and limited historical order-volume backtesting |
+| **Human oversight** | Pending plan review, saved audit history, reproducible sandbox verification, printable Decision Receipt |
+| **Synthetic simulation** | Separate SQLite event ledger, incident injection, guided tour, review-delay sweep, branches and replay |
+
+## Quick start
+
+**Requirements:** Docker with Compose. For development without Docker, use Python 3.11+, Node.js with `pnpm`, and PostgreSQL.
 
 ```bash
+git clone https://github.com/avnijainnn/OPSVERSE.git
+cd OPSVERSE
+
+# Optional: start from the supplied environment template.
+cp .env.example .env
+
+# Start PostgreSQL, migrations, API, provider-sync worker and web UI.
 docker compose up --build
 ```
 
-Open **http://localhost:3000**. Register an account and a business workspace, then use **Import data**. The API runs at http://localhost:8000 with OpenAPI docs at `/docs`. Compose starts PostgreSQL, runs the Alembic migration, then starts the API and a read-only provider sync worker. The worker checks for due connections every minute and polls each connection at most once per 15 minutes by default. Demo Mode remains available without a provider account.
+| Service | Local URL |
+| --- | --- |
+| Web app | **http://localhost:3000** |
+| Live Operations | **http://localhost:3000/live** |
+| Synthetic Demo Mode | **http://localhost:3000/demo** |
+| API / OpenAPI docs | **http://localhost:8000/docs** |
 
-The Compose password and signing secret defaults are for local development only. Set `POSTGRES_PASSWORD` and a random `SESSION_SECRET` of at least 32 characters before exposing the service. Public hosting also needs HTTPS, `COOKIE_SECURE=true`, appropriate `CORS_ORIGINS`, controlled registration and network access to PostgreSQL. The current public API should not be treated as production hardened.
+**Try it without credentials:** open `/demo` → **Guided tour**, or **Launch Demo** and inject an incident.
 
-For development without Compose, provide a PostgreSQL database and set the variables in [.env.example](.env.example), then run:
+**Try the observed-data journey:** register → create a workspace → **Import data** → start with products and orders/inventory → open an incident → **Compare Recovery Strategies** → review the Decision Receipt. Refer to the [CSV schema and import order](docs/CSV_FORMATS.md) and [reproducible V2 walkthrough](docs/V2_REPRODUCIBILITY.md).
+
+> [!CAUTION]
+> The defaults in `docker-compose.yml` are **for local development only**. Before exposing even a private pilot, set a strong `POSTGRES_PASSWORD`, a distinct `SESSION_SECRET` of at least 32 characters, secure HTTPS cookies, origin restrictions, and network controls. See [Live deployment readiness](docs/LIVE_DEPLOYMENT_READINESS.md). Do not deploy the default stack as an unrestricted public SaaS.
+
+<details>
+<summary><strong>Develop without Docker Compose</strong></summary>
+
+Provide PostgreSQL and configure `DATABASE_URL` and `SESSION_SECRET` using [.env.example](.env.example). Then start the API:
 
 ```bash
 cd apps/api
 pip install -e '.[test]'
 python -m alembic upgrade head
 uvicorn app.main:app --reload
-# separate terminal, from repository root
+```
+
+In a separate terminal, from the repository root:
+
+```bash
 pnpm install
 pnpm --dir apps/web dev
 ```
 
-The live API requires `DATABASE_URL` and `SESSION_SECRET`. Without them, `/live` shows a setup error rather than synthetic business data. The synthetic `/demo` route can still run on its local SQLite ledger.
+For manual live development, ensure the API actually receives the environment variables. Without `DATABASE_URL` and `SESSION_SECRET`, `/live` reports a setup error instead of fabricating business data. `/demo` can run with its separate local SQLite ledger.
 
-## Provider connections
+</details>
 
-Set `CREDENTIAL_ENCRYPTION_KEY` to a Fernet key generated with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Keep this key in a managed secret store; losing it makes stored provider tokens unreadable. Provider credentials are encrypted in the database and never returned to the browser. The Compose file passes the key through from the environment; it has no provider credential default.
+## Data sources and optional AI
 
-For Shopify, create a standalone/API-only Shopify app, set `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, and `SHOPIFY_REDIRECT_URI`, and allowlist the exact callback URL (`https://YOUR_API/live/shopify/callback`) in the app. The app requests `read_products`, `read_inventory`, `read_locations`, `read_orders`, and `read_returns`. Set `FRONTEND_URL` for the post-authorization redirect. Configure Shopify webhook subscriptions to `https://YOUR_API/live/shopify/webhooks` for order, product, inventory, refund, return, uninstall, and mandatory privacy topics; the endpoint verifies raw-body HMAC signatures and deduplicates delivery IDs. Public hosting requires HTTPS. An authorized INR store starts an initial read-only sync; **Sync now** repeats it. The Admin GraphQL version is pinned to `2026-10`. Product variants and orders paginate, as do their nested inventory levels, order lines, returns, and return lines; sync fails with an explicit error if a connection exceeds 10,000 records. Standard `read_orders` access covers Shopify's default recent-order window. For older orders, obtain Shopify approval, set `SHOPIFY_REQUEST_ALL_ORDERS=true`, and reconnect stores to grant `read_all_orders`; the setting alone does not grant access. No customer PII is requested. The connection screen reports sync errors and last successful sync. Shopify app installation and webhook registration must be configured in Shopify; OpsVerse does not create those external subscriptions.
+**CSV import (no provider account needed).** Upload one UTF-8 CSV at a time: products, orders, order items, inventory, returns, payments, refunds, settlements, and bank transactions. Mapping and validation precede an atomic import; duplicates and invalid references are reported. Uploads are limited to **5 MB / 10,000 rows**. Monetary calculations use integer paise; ISO-8601 timestamps normalize to UTC. [Field reference](docs/CSV_FORMATS.md).
 
-For Razorpay, set the encryption key, then enter merchant API key ID and secret in Integrations. OpsVerse verifies them with a read-only payments fetch before marking the connection as authenticated. **Sync now** reads captured INR payments, refunds, settlements and settlement reconciliation lines through GET endpoints. Fees and tax stay in integer paise; captured payments with missing fee or tax and non-INR transactions are skipped with a reported limitation. Import a bank statement CSV with `settlement_external_id` equal to the Razorpay settlement ID to match the bank credit. Incremental reads use a five-minute overlapping polling window. Compose runs read-only scheduled polling through its `sync` service. For a non-Compose deployment, schedule `python scripts/sync_due_providers.py --provider razorpay` every minute from an external scheduler; due connections are polled at most once per 15 minutes by default. Set `PROVIDER_SYNC_INTERVAL_MINUTES` and `PROVIDER_WORKER_POLL_SECONDS` to change the Compose cadence. Historical payment, refund, and settlement reads split dense time windows to stay below 10,000 records per window and report an error if a single second exceeds that cap. Reconciliation processes up to 31 settlement days per run and persists remaining days for later runs. Provider retention, API behavior, and completeness still require testing with a merchant account.
+**Shopify (read-only).** OAuth, a pinned `2026-10` Admin GraphQL adapter, paginated product/inventory/order/return reads, manual and scheduled sync, and verified/deduplicated webhook receiver are implemented. Configure a Shopify app, redirect URL, requested scopes and webhook subscriptions externally. Historical order permissions and connection size limits apply. **A real development-store installation and webhook delivery have not yet been verified.**
 
-To receive Razorpay events, connect the account, then enter a separate webhook secret in **Integrations → Receive signed updates**. Register the displayed API URL and the same secret in the Razorpay dashboard for `payment.captured`, `refund.processed`, and `settlement.processed`. Use a public HTTPS API URL; OpsVerse does not register the subscription in Razorpay. The receiver verifies the raw-body HMAC signature, deduplicates deliveries, stores only event metadata, and performs a read-only provider fetch with retry; polling remains the recovery path. A previous secret is accepted for seven days after rotation so delayed deliveries can complete. This receiver passed signed local fixtures but has not received a real Razorpay delivery.
+**Razorpay (read-only).** Encrypted merchant credentials, payment/refund/settlement reads, signed webhook receiver, overlapping polling and bank reconciliation are implemented and locally fixture-tested. Configure the merchant dashboard webhook yourself; scheduled polling runs via the Compose `sync` worker. **Actual merchant-account reads and webhook delivery remain unverified.**
 
-## Import workflow
+**Optional model-assisted investigation.** Set server-side `LLM_BASE_URL`, `LLM_MODEL` and `LLM_API_KEY` to use a compatible chat-completions endpoint with bounded, workspace-scoped read tools. Invalid evidence references or responses fall back safely; model output cannot mutate authoritative records. Real model inference, accuracy, latency and cost have **not** been measured. [Model setup](docs/LLM_SETUP.md).
 
-Import one UTF-8 CSV at a time. The UI suggests a field-to-column mapping, previews source rows, reports invalid rows and duplicates, and commits an accepted batch atomically. A rejected batch appears in import history and adds no operational records. Start with **products** and **orders**, then import **order items**, **inventory**, **returns**, **payments**, **refunds**, **settlements**, and **bank transactions** as available. Foreign references must already exist in the same workspace.
-
-See [CSV formats](docs/CSV_FORMATS.md) for required columns and currency rules. Values in money columns are rupees with up to two decimals; a source header ending in `_paise` is interpreted as integer paise. ISO 8601 timestamps are normalized to UTC. There is a 5 MB / 10,000 row limit per upload. Import history records source hashes, counts and validation errors.
-
-Current live checks identify same-time inventory disagreements, damaged-return stock questions, excessive refunds, fulfillment failures, payout differences, missing bank imports, unmatched bank credits and conflicting source identifiers. Findings retain imported row IDs and a classification: confirmed inconsistency, suspicious discrepancy, or explained timing difference. The Money Trail reconciles capture, fees, current and prior-period refunds, settlement and bank credit in integer paise.
-
-An investigator can read records only within its authenticated workspace. With `LLM_BASE_URL`, `LLM_MODEL` and `LLM_API_KEY`, it offers bounded read-only tool calls to a compatible chat-completion model and validates cited source IDs. Without working credentials it stores a visibly labeled deterministic fallback. Model output never changes authoritative inventory or finance records. Scenario Lab freezes observed source versions at a chosen ingestion timestamp, validates references, and runs three deterministic branches with bounded estimates for demand, restock, inspection and cost. It stores branch events for replay, supports event-level differences and seed-based sensitivity, records a preferred plan for human review, and can verify a sandbox replay against the saved snapshot. The historical backtest evaluates only observed order-volume projection where at least three prior ingestion windows and a later observed window exist. Forecast revenue is explicitly hypothetical; no provider operation is performed.
-
-## Synthetic Demo Mode
-
-Visit `/demo` or follow the link on the sign-in screen. **Launch Demo** creates a separate Aaranya Commerce run with 40 SKUs, initial orders, suppliers, matched payouts and costs. Inject a damaged return, settlement false alarm, supplier delay or missing payout. Compare three isolated branches, sweep manual-review delay, approve a sandbox action, export a printable receipt, inspect evidence and traces, then replay the ledger. **Guided tour** runs this path from a fresh deterministic seed. Synthetic records never appear in Live Operations.
-
-The demo event store currently uses SQLite and its own append-only event ledger. Pure reducers enforce stock, refund and settlement rules; branches remap causal IDs and leave their parent unchanged. Read-only WebSocket catch-up uses event sequence numbers.
-
-## Tests
+To store provider credentials, supply `CREDENTIAL_ENCRYPTION_KEY` generated with:
 
 ```bash
-python -m pytest apps/api/tests -q
-pnpm --dir apps/web build
-pnpm --dir apps/web exec playwright test
-python scripts/benchmark.py --seed 2026 --output reports/benchmark.json
-POSTGRES_TEST_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/DISPOSABLE_DB python scripts/benchmark_live_detection.py
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-The standard API suite uses SQLite for fast contract checks. With `POSTGRES_TEST_URL` set to a disposable PostgreSQL database, the runtime tests also run the real Alembic migration, append-only trigger, privacy-redaction exception, unique constraint and concurrent webhook checks. These passed locally against PostgreSQL 14 in WSL. The Playwright showcase uses the real API and PostgreSQL for the live CSV-to-sandbox journey, while the separate demo uses its SQLite ledger. CI provisions PostgreSQL 16 for both API and browser jobs; remote CI execution has not yet been observed here. No development-store, Razorpay test-account or model credentials were available locally. The [synthetic benchmark](reports/benchmark.json) covers 20 seeded runs across four injected incident types. A separate [labeled live-detector fixture report](reports/live_detection_fixtures.json) covers seven positive and nine negative CSV workspaces on PostgreSQL. Neither report claims AI uplift or merchant-population accuracy.
+Treat this key as a durable secret: losing it makes encrypted provider credentials unreadable. Full callback, scope and scheduling instructions are in the [existing integration documentation](docs/REAL_WORLD_COMPLETION_GAPS.md) and [deployment guide](docs/LIVE_DEPLOYMENT_READINESS.md).
 
-Desktop and mobile browser captures are in [docs/screenshots](docs/screenshots). The showcase test regenerates them from completed real-browser interactions; the V2 incident-to-decision test also captures the printable receipt.
+<details>
+<summary><strong>Provider setup notes (Shopify, Razorpay and scheduled reads)</strong></summary>
+
+**Shopify**
+
+1. Set `CREDENTIAL_ENCRYPTION_KEY`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`, `SHOPIFY_REDIRECT_URI`, and `FRONTEND_URL`. In Shopify, allowlist the exact HTTPS callback `https://YOUR_API/live/shopify/callback`.
+2. Authorize the app with `read_products`, `read_inventory`, `read_locations`, `read_orders`, and `read_returns`. The sync uses Admin GraphQL version `2026-10`; a connection with over 10,000 top-level or nested records fails explicitly rather than silently truncating data.
+3. Configure the relevant order, product, inventory, refund, return, uninstall and mandatory privacy webhook subscriptions in Shopify at `https://YOUR_API/live/shopify/webhooks`. OpsVerse validates raw-body HMAC signatures and deduplicates deliveries; it does **not** create merchant-side subscriptions.
+4. Standard `read_orders` has a limited recent-order window. Older history requires Shopify approval, `SHOPIFY_REQUEST_ALL_ORDERS=true`, and store reauthorization for `read_all_orders`.
+
+**Razorpay**
+
+1. Enter merchant API key ID and secret under **Integrations**. OpsVerse performs a read-only authentication fetch, then reads captured INR payments, refunds, settlements and reconciliation lines. Unsupported non-INR payments and captured payments without fee/tax data are reported as skipped.
+2. To match the bank credit, import a bank statement CSV with `settlement_external_id` matching the Razorpay settlement ID. Fees, taxes and reconciliation arithmetic remain in integer paise.
+3. To use incoming events, enter a separate webhook secret under **Integrations → Receive signed updates**, then configure the displayed HTTPS URL and matching secret in Razorpay for `payment.captured`, `refund.processed` and `settlement.processed`. The receiver validates signatures and stores event metadata; polling remains the recovery path.
+
+**Scheduling:** `docker compose up --build` starts a `sync` worker that looks for due connections every 60 seconds and, by default, polls each at most once per 15 minutes. A non-Compose deployment can run `python scripts/sync_due_providers.py --provider razorpay` every minute. Use `PROVIDER_SYNC_INTERVAL_MINUTES` and `PROVIDER_WORKER_POLL_SECONDS` to adjust the Compose cadence. Provider connections must be configured and tested with authorized accounts before operational reliance.
+
+</details>
 
 ## Architecture
 
-Live records use SQLAlchemy models and Alembic migrations for PostgreSQL. Tables include users, workspaces, memberships, import batches, source projections, append-only observations, provider connections, webhook receipts, incidents, investigations, snapshots, scenario results and audit records. PostgreSQL rejects ordinary observation updates and deletes through a trigger; Shopify privacy redaction uses a transaction-scoped delete exception. Passwords use Argon2 through `pwdlib`; signed sessions use PyJWT in an HttpOnly cookie. Authenticated write requests enforce an allowed Origin. Live queries include membership and workspace checks. Incident acknowledgement and review create audit records; review does not execute source-system changes. The Record History screen distinguishes imported/provider observations, audit actions and hypothetical scenario replay. Observed history starts at the first ingestion; it cannot infer earlier business events.
+```mermaid
+flowchart LR
+  subgraph Live["Live Operations — authenticated and workspace-scoped"]
+    CSV[CSV imports] --> API[FastAPI]
+    SP[Shopify read-only sync / signed events] --> API
+    RP[Razorpay read-only sync / signed events] --> API
+    API --> PG[(PostgreSQL)]
+    PG --> E[Source-linked incidents & observation history]
+    E --> I[Validated investigator / deterministic fallback]
+    PG --> S[Immutable observed snapshot]
+    S --> B[Three isolated scenario branches]
+    B --> H[Human review & sandbox replay]
+    H --> DR[Decision Receipt]
+  end
+  subgraph Demo["Demo Mode — isolated synthetic system"]
+    DA[Demo API] --> SQ[(SQLite event ledger)]
+    SQ --> R[Event replay & synthetic branches]
+  end
+```
 
-The existing demo SQLite ledger remains separate; old synthetic runs are intentionally not copied into live workspaces. An opt-in reproducible fixture is available with `python scripts/seed_demo_300.py --seed 2026`; it creates a paused, 300-order synthetic run in the configured demo SQLite database. No real refunds, payouts, bank transfers or stock changes are performed.
+**Trust boundary:** the demo SQLite ledger never writes into live PostgreSQL source tables. Live scenario branches save hypothetical events, not merchant writes. Incident source IDs, ingestion-time versions and review actions are persisted for auditability. See the [architecture details](docs/ARCHITECTURE.md) and [data model](docs/DATA_MODEL.md).
 
-## Current limitations
+<details>
+<summary><strong>Repository structure</strong></summary>
 
-- **External integrations are not yet verified with live accounts.** Shopify and Razorpay adapter contracts, signed Shopify and Razorpay webhooks, and model-response validation were tested locally. No development-store installation, Razorpay test-account sync or webhook delivery, or real model inference was run because credentials were unavailable. Model accuracy, latency, and cost therefore remain unmeasured.
-- **This is not a production deployment.** The API passed local and PostgreSQL 17 runtime tests, and 12 Chromium browser journeys passed against the Compose stack. A managed database, remote CI run, public hosting, failover, and live provider connectivity have not been verified. Public operation still needs managed secrets, HTTPS and secure cookies, controlled registration, distributed rate limits, database network restrictions, background job limits, retention, and monitoring. A [controlled private pilot configuration](docs/LIVE_DEPLOYMENT_READINESS.md) is available.
-- **Evaluation samples remain curated.** Detection precision and recall were measured on 16 hand-labeled CSV workspaces (seven positive and nine negative); replay and recovery checks used 20 seeded runs across four synthetic incident types. These results do not establish accuracy across merchants or real provider data. See the [validation report](docs/VALIDATION_AND_LIMITATIONS.md) for counts and methods.
-- **Source history and sync coverage still have boundaries.** Observed history starts at first ingestion. Shopify nested GraphQL reads now paginate, but standard `read_orders` limits older history unless the app is approved and reauthorized for `read_all_orders`; a top-level or nested connection over 10,000 records fails explicitly. Compose schedules read-only Razorpay polling, dense historical reads are partitioned, and a signed webhook receiver is available. Merchant-side webhook registration and real provider retention/completeness remain unverified.
-- **The two experiences differ in their data and models.** Both have a network view, replay, Settings, a guided tour and three-branch comparison. The synthetic demo uses a seeded event ledger and delayed manual-review policy; authenticated Live Operations uses imported observations and an inventory-policy simulator. Every recovery action and provider-facing outcome is sandbox-only; OpsVerse does not make real financial or inventory writes.
+```text
+OPSVERSE/
+├── apps/
+│   ├── api/              # FastAPI, live data model, migrations, demo engine, tests
+│   └── web/              # Next.js UI and Playwright journeys
+├── docs/
+│   ├── screenshots/      # Real desktop/mobile captures
+│   └── *.md              # Architecture, guides, audits and requirements
+├── deploy/               # Controlled private-pilot configuration
+├── reports/              # Synthetic benchmark and detector-fixture results
+├── scripts/              # Benchmarks, providers and reproducible fixtures
+├── docker-compose.yml
+└── .env.example
+```
 
-## Future scope
+</details>
 
-The following work is proposed and **not completed** in this release:
+## Tests and reproducibility
 
-1. Validate Shopify installation, GraphQL pagination, and webhook delivery with a development store; validate Razorpay payment, refund, and settlement reads with a test merchant; measure real model findings, latency, and cost with a configured endpoint.
-2. Prepare a public deployment with managed PostgreSQL, secret storage, HTTPS, access controls, distributed rate limiting, background job concurrency limits, retention, monitoring, and failover tests. Run the configured CI pipeline remotely and add deployment checks.
-3. Expand the recovery-policy engine beyond its current inventory and delayed-review models. Keep simulated actions isolated from merchant systems.
-4. Expand labeled evaluation across more merchants, incident types, negative controls, and financial edge cases before making broader detection or AI-performance claims.
+```bash
+# API tests (PostgreSQL-only checks require POSTGRES_TEST_URL)
+python -m pytest apps/api/tests -q
 
-See [architecture](docs/ARCHITECTURE.md), [data model](docs/DATA_MODEL.md), [product requirements](docs/PRD.md), and [gap analysis](docs/LIVE_OPERATIONS_GAP_ANALYSIS.md). The initial simulator took general inspiration from the [event-sourced WMS prototype](https://github.com/sri-pranav-r/event-sourced-wms) and [financial reconciliation agent](https://github.com/Manu6259/financial-reconciliation-agent); no code or branding was copied.
+# Type check, production build and real-browser journeys
+pnpm --filter @opsverse/web lint
+pnpm --dir apps/web build
+pnpm --dir apps/web exec playwright test
+
+# Synthetic reproducibility benchmark
+python scripts/benchmark.py --seed 2026 --output reports/benchmark.json
+```
+
+For the database-specific checks, set `POSTGRES_TEST_URL` to a **disposable** PostgreSQL database. Browser journeys for Live Operations require the real API and PostgreSQL; the demo uses its isolated SQLite ledger. [Exact test setup](docs/V2_REPRODUCIBILITY.md).
+
+### What the evidence actually supports
+
+| Evidence | Scope / limitation |
+| --- | --- |
+| **16 labeled live-detector CSV workspaces** | 7 positive and 9 negative curated fixtures; not a representative merchant-population accuracy estimate. [Fixture report](reports/live_detection_fixtures.json) |
+| **20 seeded synthetic benchmark runs** | Four injected incident types; checks deterministic branches, persisted replay and sandbox verification, **not** AI uplift or real recovery performance. [Benchmark report](reports/benchmark.json) |
+| **Local API, PostgreSQL and browser checks** | Documented suites include successful API runs, schema/ledger/webhook checks, a production build, and Chromium journeys against a locally running stack. **These are local checks, not remote production or provider validation.** [Validation report](docs/VALIDATION_AND_LIMITATIONS.md) |
+
+## Validation and limitations
+
+OpsVerse is a **locally tested prototype / controlled-private-pilot candidate**, not a verified production deployment.
+
+- **External accounts remain unverified.** Shopify and Razorpay contracts, HMAC fixtures and provider-sync paths were tested locally; real account authorization, actual provider responses, and real webhook deliveries still need end-to-end checks.
+- **Model outcomes remain unmeasured.** A compatible LLM endpoint is optional; without one, investigations use deterministic fallback. Real model accuracy, cost and latency have not been verified.
+- **Historical knowledge is bounded by ingestion.** Old business timestamps imported today do not become observations the system could have known yesterday. The backtest evaluates **order-volume projection**, not causal recovery success or SKU-level forecast accuracy.
+- **Scenarios are hypothetical.** Three-branch results depend on recorded snapshots and bounded assumptions. No provider-facing changes are executed, even after review.
+- **Public launch needs additional hardening.** Managed database and secrets, backups, HTTPS, secure cookies, registration/edge controls, distributed rate limiting, retention, monitoring, background-job limits, and failover checks are outstanding.
+
+See [real-world completion gaps](docs/REAL_WORLD_COMPLETION_GAPS.md), [validation matrix](docs/VALIDATION_AND_LIMITATIONS.md), [V2 implementation audit](docs/IMPLEMENTATION_GAP_AUDIT.md), and [Live deployment readiness](docs/LIVE_DEPLOYMENT_READINESS.md) for the precise verified/unverified boundary.
+
+## Documentation
+
+| Guide | Purpose |
+| --- | --- |
+| [Cofounder walkthrough](docs/COFOUNDER_DEMO.md) | Fast no-credential product tour and Live path |
+| [CSV formats](docs/CSV_FORMATS.md) | Required import fields, ID linking and money units |
+| [V2 reproducibility](docs/V2_REPRODUCIBILITY.md) | Recreate the incident-to-decision journey |
+| [Architecture](docs/ARCHITECTURE.md) · [Data model](docs/DATA_MODEL.md) | Services, persistence and trust boundaries |
+| [LLM setup](docs/LLM_SETUP.md) | Optional bounded model interpretation |
+| [Showcase deployment](docs/DEPLOYMENT_SHOWCASE.md) · [Live pilot readiness](docs/LIVE_DEPLOYMENT_READINESS.md) | Deployment boundaries and operator checklist |
+| [Validation and limitations](docs/VALIDATION_AND_LIMITATIONS.md) · [V2 audit](docs/IMPLEMENTATION_GAP_AUDIT.md) | Local test evidence and outstanding work |
+| [Screenshot gallery](docs/screenshots/README.md) | Desktop/mobile browser captures |
+
+---
+
+<div align="center">
+
+**OpsVerse — from operational evidence to reproducible decisions.**
+
+Built by [Avni Jain](https://github.com/avnijainnn) · [View source on GitHub](https://github.com/avnijainnn/OPSVERSE)
+
+</div>
